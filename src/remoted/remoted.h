@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -79,7 +80,7 @@ void *wait_for_msgs(void *none);
 void *update_shared_files(void *none);
 
 /* Save control messages */
-void save_controlmsg(unsigned int agentid, char *msg, size_t msg_length);
+void save_controlmsg(const keyentry * key, char *msg, size_t msg_length);
 
 // Request listener thread entry point
 void * req_main(void * arg);
@@ -126,10 +127,28 @@ void rem_inc_ctrl_msg();
 void rem_inc_msg_sent();
 void rem_inc_discarded();
 
+// Read config
+size_t rem_getconfig(const char * section, char ** output);
+cJSON *getRemoteConfig(void);
+cJSON *getRemoteInternalConfig(void);
+
 /** Global variables **/
 
 extern keystore keys;
 extern remoted logr;
 extern char* node_name;
+extern int timeout;
+extern int pass_empty_keyfile;
+extern int sender_pool;
+extern int rto_sec;
+extern int rto_msec;
+extern int max_attempts;
+extern int request_pool;
+extern int request_timeout;
+extern int response_timeout;
+extern int INTERVAL;
+extern rlim_t nofile;
+extern int guess_agent_group;
+extern int group_data_flush;
 
 #endif /* __LOGREMOTE_H */

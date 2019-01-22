@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -46,11 +47,23 @@ int Lists_OP_LoadList(char *listfile)
     }
 
     snprintf(b_filename, OS_MAXSTR - 1, "%s.cdb", a_filename);
+    
+    /* Check if the CDB list file is actually available */
+    FILE *txt_fd = fopen(a_filename, "r");
+    if (!txt_fd)
+    {
+        merror(FOPEN_ERROR, a_filename, errno, strerror(errno));
+        free(tmp_listnode_pt);
+        return -1;
+    }
+
+    fclose(txt_fd);
 
     os_strdup(a_filename, tmp_listnode_pt->txt_filename);
     os_strdup(b_filename, tmp_listnode_pt->cdb_filename);
 
     tmp_listnode_pt->loaded = 0;
+    tmp_listnode_pt->mutex = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 
     OS_AddList(tmp_listnode_pt);
 

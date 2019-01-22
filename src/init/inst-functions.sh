@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Wazuh Installer Functions
-# Copyright (C) 2016 Wazuh Inc.
+# Copyright (C) 2015-2019, Wazuh Inc.
 # November 18, 2016.
 #
 # This program is a free software; you can redistribute it
@@ -68,6 +68,30 @@ WriteSyscheck()
     fi
 }
 
+##########
+# DisableAuthd()
+##########
+DisableAuthd()
+{
+    echo "  <!-- Configuration for ossec-authd -->" >> $NEWCONFIG
+    echo "  <auth>" >> $NEWCONFIG
+    echo "    <disabled>yes</disabled>" >> $NEWCONFIG
+    echo "    <port>1515</port>" >> $NEWCONFIG
+    echo "    <use_source_ip>yes</use_source_ip>" >> $NEWCONFIG
+    echo "    <force_insert>yes</force_insert>" >> $NEWCONFIG
+    echo "    <force_time>0</force_time>" >> $NEWCONFIG
+    echo "    <purge>yes</purge>" >> $NEWCONFIG
+    echo "    <use_password>no</use_password>" >> $NEWCONFIG
+    echo "    <limit_maxagents>yes</limit_maxagents>" >> $NEWCONFIG
+    echo "    <ciphers>HIGH:!ADH:!EXP:!MD5:!RC4:!3DES:!CAMELLIA:@STRENGTH</ciphers>" >> $NEWCONFIG
+    echo "    <!-- <ssl_agent_ca></ssl_agent_ca> -->" >> $NEWCONFIG
+    echo "    <ssl_verify_host>no</ssl_verify_host>" >> $NEWCONFIG
+    echo "    <ssl_manager_cert>${INSTALLDIR}/etc/sslmanager.cert</ssl_manager_cert>" >> $NEWCONFIG
+    echo "    <ssl_manager_key>${INSTALLDIR}/etc/sslmanager.key</ssl_manager_key>" >> $NEWCONFIG
+    echo "    <ssl_auto_negotiate>no</ssl_auto_negotiate>" >> $NEWCONFIG
+    echo "  </auth>" >> $NEWCONFIG
+    echo "" >> $NEWCONFIG
+}
 
 ##########
 # WriteRootcheck()
@@ -112,13 +136,16 @@ WriteOpenSCAP()
 WriteSyscollector()
 {
     # Adding to the config file
-    SYSCOLLECTOR_TEMPLATE=$(GetTemplate "wodle-syscollector.$1.template" ${DIST_NAME} ${DIST_VER} ${DIST_SUBVER})
-    if [ "$SYSCOLLECTOR_TEMPLATE" = "ERROR_NOT_FOUND" ]; then
+    if [ "X$SYSCOLLECTOR" = "Xyes" ]; then
+      SYSCOLLECTOR_TEMPLATE=$(GetTemplate "wodle-syscollector.$1.template" ${DIST_NAME} ${DIST_VER} ${DIST_SUBVER})
+      if [ "$SYSCOLLECTOR_TEMPLATE" = "ERROR_NOT_FOUND" ]; then
         SYSCOLLECTOR_TEMPLATE=$(GetTemplate "wodle-syscollector.template" ${DIST_NAME} ${DIST_VER} ${DIST_SUBVER})
+      fi
+      cat ${SYSCOLLECTOR_TEMPLATE} >> $NEWCONFIG
+      echo "" >> $NEWCONFIG
     fi
-    cat ${SYSCOLLECTOR_TEMPLATE} >> $NEWCONFIG
-    echo "" >> $NEWCONFIG
 }
+
 ##########
 # Osquery()
 ##########
@@ -175,16 +202,18 @@ InstallOpenSCAPFiles()
 ##########
 GenerateAuthCert()
 {
-    # Generation auto-signed certificate if not exists
-    if [ ! -f "${INSTALLDIR}/etc/sslmanager.key" ] && [ ! -f "${INSTALLDIR}/etc/sslmanager.cert" ]; then
-        if [ ! "X${USER_GENERATE_AUTHD_CERT}" = "Xn" ]; then
-            if type openssl >/dev/null 2>&1; then
-                echo "Generating self-signed certificate for ossec-authd..."
-                openssl req -x509 -batch -nodes -days 365 -newkey rsa:2048 -subj "/C=US/ST=California/CN=Wazuh/" -keyout ${INSTALLDIR}/etc/sslmanager.key -out ${INSTALLDIR}/etc/sslmanager.cert
-                chmod 640 ${INSTALLDIR}/etc/sslmanager.key
-                chmod 640 ${INSTALLDIR}/etc/sslmanager.cert
-            else
-                echo "ERROR: OpenSSL not found. Cannot generate certificate for ossec-authd."
+    if [ "X$SSL_CERT" = "Xyes" ]; then
+        # Generation auto-signed certificate if not exists
+        if [ ! -f "${INSTALLDIR}/etc/sslmanager.key" ] && [ ! -f "${INSTALLDIR}/etc/sslmanager.cert" ]; then
+            if [ ! "X${USER_GENERATE_AUTHD_CERT}" = "Xn" ]; then
+                if type openssl >/dev/null 2>&1; then
+                    echo "Generating self-signed certificate for ossec-authd..."
+                    openssl req -x509 -batch -nodes -days 365 -newkey rsa:2048 -subj "/C=US/ST=California/CN=Wazuh/" -keyout ${INSTALLDIR}/etc/sslmanager.key -out ${INSTALLDIR}/etc/sslmanager.cert
+                    chmod 640 ${INSTALLDIR}/etc/sslmanager.key
+                    chmod 640 ${INSTALLDIR}/etc/sslmanager.cert
+                else
+                    echo "ERROR: OpenSSL not found. Cannot generate certificate for ossec-authd."
+                fi
             fi
         fi
     fi
@@ -502,14 +531,19 @@ WriteManager()
     echo "" >> $NEWCONFIG
 
     # Writting auth configuration
-    sed -e "s|\${INSTALLDIR}|$INSTALLDIR|g" "${AUTH_TEMPLATE}" >> $NEWCONFIG
-    echo "" >> $NEWCONFIG
+    if [ "X${AUTHD}" = "Xyes" ]; then
+        sed -e "s|\${INSTALLDIR}|$INSTALLDIR|g" "${AUTH_TEMPLATE}" >> $NEWCONFIG
+        echo "" >> $NEWCONFIG
+    else
+        DisableAuthd
+    fi
 
     # Writting cluster configuration
     cat ${CLUSTER_TEMPLATE} >> $NEWCONFIG
     echo "" >> $NEWCONFIG
 
     echo "</ossec_config>" >> $NEWCONFIG
+
 }
 
 ##########
@@ -666,7 +700,7 @@ InstallCommon(){
         ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/bin
     fi
 
-  ${INSTALL} -d -m 0750 -o root -g 0 ${PREFIX}/lib
+  ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/lib
 
     if [ ${NUNAME} = 'Darwin' ]
     then
@@ -676,7 +710,7 @@ InstallCommon(){
         fi
     elif [ -f libwazuhext.so ]
     then
-        ${INSTALL} -m 0750 -o root -g 0 libwazuhext.so ${PREFIX}/lib
+        ${INSTALL} -m 0750 -o root -g ${OSSEC_GROUP} libwazuhext.so ${PREFIX}/lib
 
         if ([ "X${DIST_NAME}" = "Xrhel" ] || [ "X${DIST_NAME}" = "Xcentos" ] || [ "X${DIST_NAME}" = "XCentOS" ]) && [ ${DIST_VER} -le 5 ]; then
             chcon -t textrel_shlib_t ${PREFIX}/lib/libwazuhext.so
@@ -694,7 +728,6 @@ InstallCommon(){
   ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/queue
   ${INSTALL} -d -m 0770 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/queue/alerts
   ${INSTALL} -d -m 0770 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/queue/ossec
-  ${INSTALL} -d -m 0750 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/queue/syscheck
   ${INSTALL} -d -m 0750 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/queue/diff
   ${INSTALL} -d -m 0750 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/queue/agents
 
@@ -709,6 +742,9 @@ InstallCommon(){
   ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/wodles/aws
   ${INSTALL} -m 0750 -o root -g ${OSSEC_GROUP} ../wodles/aws/aws-s3.py ${PREFIX}/wodles/aws/aws-s3
 
+  ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/wodles/docker
+  ${INSTALL} -m 0750 -o root -g ${OSSEC_GROUP} ../wodles/docker-listener/DockerListener.py ${PREFIX}/wodles/docker/DockerListener
+
   InstallOpenSCAPFiles
 
   ${INSTALL} -d -m 0770 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/etc
@@ -718,7 +754,7 @@ InstallCommon(){
          ${INSTALL} -m 0640 -o root -g ${OSSEC_GROUP} /etc/localtime ${PREFIX}/etc
     fi
 
-  ${INSTALL} -d -m 1750 -o root -g ${OSSEC_GROUP} ${PREFIX}/tmp
+  ${INSTALL} -d -m 1770 -o root -g ${OSSEC_GROUP} ${PREFIX}/tmp
 
     if [ -f /etc/TIMEZONE ]; then
          ${INSTALL} -m 0640 -o root -g ${OSSEC_GROUP} /etc/TIMEZONE ${PREFIX}/etc/
@@ -778,6 +814,12 @@ InstallCommon(){
     InstallSELinuxPolicyPackage
   fi
 
+  if [ ! ${INSTYPE} = 'agent' ]; then
+      # Add Azure script (for manager only)
+      ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/wodles/azure
+      ${INSTALL} -m 0750 -o root -g ${OSSEC_GROUP} ../wodles/azure/azure-logs.py ${PREFIX}/wodles/azure/azure-logs
+  fi
+
   ${INSTALL} -d -m 0750 -o root -g ${OSSEC_GROUP} ${PREFIX}/backup
 
 }
@@ -788,6 +830,7 @@ InstallLocal(){
 
     ${INSTALL} -d -m 0770 -o root -g ${OSSEC_GROUP} ${PREFIX}/etc/decoders
     ${INSTALL} -d -m 0770 -o root -g ${OSSEC_GROUP} ${PREFIX}/etc/rules
+    ${INSTALL} -d -m 0770 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/var/multigroups
     ${INSTALL} -d -m 770 -o root -g ${OSSEC_GROUP} ${PREFIX}/var/db
     ${INSTALL} -d -m 770 -o root -g ${OSSEC_GROUP} ${PREFIX}/var/db/agents
     ${INSTALL} -d -m 0770 -o root -g ${OSSEC_GROUP} ${PREFIX}/var/download
@@ -805,7 +848,7 @@ InstallLocal(){
     ${INSTALL} -m 0750 -o root -g 0 ossec-csyslogd ${PREFIX}/bin
     ${INSTALL} -m 0750 -o root -g 0 ossec-dbd ${PREFIX}/bin
     ${INSTALL} -m 0750 -o root -g 0 ossec-makelists ${PREFIX}/bin
-    ${INSTALL} -m 0750 -o root -g 0 verify-agent-conf ${PREFIX}/bin/
+    ${INSTALL} -m 0750 -o root -g ${OSSEC_GROUP} verify-agent-conf ${PREFIX}/bin/
     ${INSTALL} -m 0750 -o root -g 0 clear_stats ${PREFIX}/bin/
     ${INSTALL} -m 0750 -o root -g 0 ossec-regex ${PREFIX}/bin/
     ${INSTALL} -m 0750 -o root -g 0 syscheck_update ${PREFIX}/bin/
@@ -850,7 +893,9 @@ InstallLocal(){
     fi
     if [ ! -f ${PREFIX}/etc/lists/audit-keys ]; then
         ${INSTALL} -m 0640 -o ossec -g ${OSSEC_GROUP} -b ../etc/lists/audit-keys ${PREFIX}/etc/lists/audit-keys
-        ${INSTALL} -m 0640 -o ossec -g ${OSSEC_GROUP} -b ../etc/lists/audit-keys.cdb ${PREFIX}/etc/lists/audit-keys.cdb
+    fi
+    if [ ! -f ${PREFIX}/etc/lists/security-eventchannel ]; then
+        ${INSTALL} -m 0640 -o ossec -g ${OSSEC_GROUP} -b ../etc/lists/security-eventchannel ${PREFIX}/etc/lists/security-eventchannel
     fi
 
     ${INSTALL} -d -m 0750 -o ${OSSEC_USER} -g ${OSSEC_GROUP} ${PREFIX}/queue/fts
@@ -905,6 +950,10 @@ InstallServer(){
         ${INSTALL} -m 0660 -o ossec -g ${OSSEC_GROUP} ../etc/agent.conf ${PREFIX}/etc/shared/default
     fi
 
+    if [ ! -f ${PREFIX}/etc/shared/agent-template.conf ]; then
+        ${INSTALL} -m 0660 -o ossec -g ${OSSEC_GROUP} ../etc/agent.conf ${PREFIX}/etc/shared/agent-template.conf
+    fi
+
     GenerateAuthCert
 }
 
@@ -927,7 +976,17 @@ InstallWazuh(){
         InstallAgent
     elif [ "X$INSTYPE" = "Xserver" ]; then
         InstallServer
+        InstallCDB
     elif [ "X$INSTYPE" = "Xlocal" ]; then
         InstallLocal
+        InstallCDB
     fi
+
+}
+
+
+InstallCDB()
+{
+    echo "Building CDB lists..."
+    ${PREFIX}/bin/ossec-makelists > /dev/null 2>&1
 }

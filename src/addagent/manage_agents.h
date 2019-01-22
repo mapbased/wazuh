@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -47,18 +48,6 @@ void OS_AddAgentTimestamp(const char *id, const char *name, const char *ip, time
 void OS_RemoveAgentTimestamp(const char *id);
 void OS_RemoveAgentGroup(const char *id);
 void FormatID(char *id);
-
-// Connect to Agentd. Returns socket or -1 on error.
-int auth_connect();
-
-// Close socket if valid.
-int auth_close(int sock);
-
-// Add agent. Returns 0 on success or -1 on error.
-int auth_add_agent(int sock, char *id, const char *name, const char *ip, int force, int json_format);
-
-// Remove agent. Returns 0 on success or -1 on error.
-int auth_remove_agent(int sock, const char *id, int json_format);
 
 /* Load gid and uid.
  * Call before OS_BackupAgentInfo(), OS_BackupAgentInfo_ID() or OS_CreateBackupDir().
@@ -167,9 +156,3 @@ extern char shost[];
 #define BANNER_CLIENT   "   (I)mport key from the server (I).\n" \
                         "   (Q)uit.\n" \
                         "Choose your action: I or Q: "
-
-/* WIN32 errors */
-#define CONF_ERROR      "Could not read (%s) (Make sure config exists and executable is running with Administrative privileges)."
-#define GMF_ERROR       "Could not run GetModuleFileName."
-#define GMF_BUFF_ERROR  "Could not get path because it is too long and was shrunk by (%d) characters with a max of (%d)."
-#define GMF_UNKN_ERROR  "Could not run GetModuleFileName which returned (%ld)."

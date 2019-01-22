@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -12,6 +13,8 @@
 
 #include "list_op.h"
 #include "config/rootcheck-config.h"
+#include "external/cJSON/cJSON.h"
+
 extern rkconfig rootcheck;
 
 /* Output types */
@@ -41,6 +44,9 @@ int isfile_ondir(const char *file, const char *dir);
 int rk_check_file(char *file, char *pattern);
 
 int rk_check_dir(const char *dir, const char *file, char *pattern);
+
+/* Parse readed config into JSON format */
+cJSON *getRootcheckConfig(void);
 
 /* Check if pattern is present on string */
 int pt_matches(const char *str, char *pattern);

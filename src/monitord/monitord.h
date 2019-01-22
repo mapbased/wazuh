@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -26,6 +27,14 @@ void monitor_agents(void);
 void OS_SignLog(const char *logfile, const char *logfile_old, const char * ext);
 void OS_CompressLog(const char *logfile);
 void w_rotate_log(int compress, int keep_log_days, int new_day, int rotate_json, int daily_rotations);
+int delete_old_agent(const char *agent_id);
+
+/* Parse readed config into JSON format */
+cJSON *getMonitorInternalOptions(void);
+cJSON *getReportsOptions(void);
+size_t moncom_dispatch(char * command, char ** output);
+size_t moncom_getconfig(const char * section, char ** output);
+void * moncom_main(__attribute__((unused)) void * arg);
 
 /* Global variables */
 extern monitor_config mond;

@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -9,6 +10,10 @@
 
 #include "manage_agents.h"
 #include "os_crypto/md5/md5_op.h"
+#include "os_crypto/sha256/sha256_op.h"
+#ifndef CLIENT
+#include "wazuh_db/wdb.h"
+#endif
 
 #define str_startwith(x, y) strncmp(x, y, strlen(y))
 #define str_endwith(x, y) (strlen(x) < strlen(y) || strcmp(x + strlen(x) - strlen(y), y))
@@ -108,7 +113,6 @@ int OS_RemoveAgent(const char *u_id) {
         return 0;
     }
 
-#ifndef REUSE_ID
     char *ptr_name = strchr(buf_curline, ' ');
 
     if (!ptr_name) {
@@ -124,8 +128,6 @@ int OS_RemoveAgent(const char *u_id) {
     size_t curline_len = strlen(buf_curline);
     memcpy(buffer + fp_read, buf_curline, curline_len);
     fp_read += curline_len;
-
-#endif
 
     if (!feof(fp))
         fp_read += fread(buffer + fp_read, sizeof(char), fp_stat.st_size, fp);
@@ -651,23 +653,6 @@ void OS_BackupAgentInfo(const char *id, const char *name, const char *ip)
     snprintf(path_dst, OS_FLSIZE, "%s/agent-info", path_backup);
     status += link(path_src, path_dst);
 
-    /* syscheck */
-    snprintf(path_src, OS_FLSIZE, "%s/(%s) %s->syscheck", SYSCHECK_DIR, name, ip);
-    snprintf(path_dst, OS_FLSIZE, "%s/syscheck", path_backup);
-    status += link(path_src, path_dst);
-
-    snprintf(path_src, OS_FLSIZE, "%s/.(%s) %s->syscheck.cpt", SYSCHECK_DIR, name, ip);
-    snprintf(path_dst, OS_FLSIZE, "%s/syscheck.cpt", path_backup);
-    status += link(path_src, path_dst);
-
-    snprintf(path_src, OS_FLSIZE, "%s/(%s) %s->syscheck-registry", SYSCHECK_DIR, name, ip);
-    snprintf(path_dst, OS_FLSIZE, "%s/syscheck-registry", path_backup);
-    status += link(path_src, path_dst);
-
-    snprintf(path_src, OS_FLSIZE, "%s/.(%s) %s->syscheck-registry.cpt", SYSCHECK_DIR, name, ip);
-    snprintf(path_dst, OS_FLSIZE, "%s/syscheck-registry.cpt", path_backup);
-    status += link(path_src, path_dst);
-
     /* rootcheck */
     snprintf(path_src, OS_FLSIZE, "%s/(%s) %s->rootcheck", ROOTCHECK_DIR, name, ip);
     snprintf(path_dst, OS_FLSIZE, "%s/rootcheck", path_backup);
@@ -833,7 +818,35 @@ void OS_RemoveAgentGroup(const char *id)
 {
     char group_file[OS_FLSIZE + 1];
     snprintf(group_file, OS_FLSIZE, "%s/%s", GROUPS_DIR, id);
-    unlink(group_file);
+
+    FILE *fp;
+    char group[OS_SIZE_65536 + 1] = {0};
+    fp = fopen(group_file,"r");
+
+    if(!fp){
+        mdebug1("At OS_RemoveAgentGroup(): Could not open file '%s'",group_file);
+    } else {
+        if(fgets(group, OS_SIZE_65536, fp)!=NULL ) {
+            fclose(fp);
+            fp = NULL;
+            unlink(group_file);
+
+            char *endl = strchr(group, '\n');
+
+            if (endl) {
+                *endl = '\0';
+            }
+
+        }
+#ifndef CLIENT
+        /* Remove from the 'belongs' table groups which the agent belongs to*/
+        wdb_delete_agent_belongs(atoi(id));
+#endif
+
+        if(fp){
+            fclose(fp);
+        }
+    }
 }
 
 void FormatID(char *id) {

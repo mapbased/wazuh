@@ -1,4 +1,5 @@
-/* Copyright (C) 2014 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2014 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -391,7 +392,7 @@ START_TEST(test_regexextraction)
 
 
 
-        char **result = reg.sub_strings;
+        char **result = reg.d_sub_strings;
 
         int j;
         int k;

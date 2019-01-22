@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for custom command execution
- * Copyright (C) 2017 Wazuh Inc.
+ * Copyright (C) 2015-2019, Wazuh Inc.
  * October 26, 2017.
  *
  * This program is a free software; you can redistribute it
@@ -13,13 +13,15 @@
 
 static void * wm_command_main(wm_command_t * command);    // Module main function. It won't return
 static void wm_command_destroy(wm_command_t * command);   // Destroy data
+cJSON *wm_command_dump(const wm_command_t * command);
 
 // Command module context definition
 
 const wm_context WM_COMMAND_CONTEXT = {
     "command",
     (wm_routine)wm_command_main,
-    (wm_routine)wm_command_destroy
+    (wm_routine)wm_command_destroy,
+    (cJSON * (*)(const void *))wm_command_dump
 };
 
 // Module module main function. It won't return.
@@ -143,7 +145,7 @@ void * wm_command_main(wm_command_t * command) {
         int i;
 
         for (i = 0; command->queue_fd = StartMQ(DEFAULTQPATH, WRITE), command->queue_fd < 0 && i < WM_MAX_ATTEMPTS; i++) {
-            sleep(WM_MAX_WAIT);
+            wm_delay(1000 * WM_MAX_WAIT);
         }
 
         if (i == WM_MAX_ATTEMPTS) {
@@ -158,9 +160,15 @@ void * wm_command_main(wm_command_t * command) {
     if (!command->run_on_start) {
         time_start = time(NULL);
 
+        // On first run, take into account the interval of time specified
+        if (command->interval && command->state.next_time == 0) {
+            command->state.next_time = time_start + command->interval;
+        }
+
         if (command->state.next_time > time_start) {
             mtinfo(WM_COMMAND_LOGTAG, "%s: Waiting for turn to evaluate.", command->tag);
-            sleep(command->state.next_time - time_start);
+            time_sleep = command->state.next_time - time_start;
+            wm_delay(1000 * time_sleep);
         }
     }
 
@@ -173,7 +181,7 @@ void * wm_command_main(wm_command_t * command) {
         // Get time and execute
         time_start = time(NULL);
 
-        switch (wm_exec(command->full_command, command->ignore_output ? NULL : &output, &status, command->timeout)) {
+        switch (wm_exec(command->full_command, command->ignore_output ? NULL : &output, &status, command->timeout, NULL)) {
         case 0:
             if (status > 0) {
                 mtwarn(WM_COMMAND_LOGTAG, "Command '%s' returned exit code %d.", command->tag, status);
@@ -182,15 +190,17 @@ void * wm_command_main(wm_command_t * command) {
                     mtdebug2(WM_COMMAND_LOGTAG, "OUTPUT: %s", output);
                 }
             }
-
+            break;
+        case 1:
+            mterror(WM_COMMAND_LOGTAG, "%s: Timeout overtaken. You can modify your command timeout at ossec.conf. Exiting...", command->tag);
             break;
 
         default:
-            mterror(WM_COMMAND_LOGTAG, "%s: Timeout overtaken. You can modify your command timeout at ossec.conf. Exiting...", command->tag);
-            pthread_exit(NULL);
+            mterror(WM_COMMAND_LOGTAG, "Command '%s' failed.", command->tag);
+            break;
         }
 
-        if (!command->ignore_output) {
+        if (!command->ignore_output && output != NULL) {
             char * line;
 
             for (line = strtok(output, "\n"); line; line = strtok(NULL, "\n")){
@@ -223,11 +233,36 @@ void * wm_command_main(wm_command_t * command) {
         }
 
         // If time_sleep=0, yield CPU
-        sleep(time_sleep);
+        wm_delay(1000 * time_sleep);
     }
 
     return NULL;
 }
+
+
+// Get readed data
+
+cJSON *wm_command_dump(const wm_command_t * command) {
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *wm_comm = cJSON_CreateObject();
+
+    if (command->enabled) cJSON_AddStringToObject(wm_comm,"disabled","no"); else cJSON_AddStringToObject(wm_comm,"disabled","yes");
+    if (command->run_on_start) cJSON_AddStringToObject(wm_comm,"run_on_start","yes"); else cJSON_AddStringToObject(wm_comm,"run_on_start","no");
+    if (command->ignore_output) cJSON_AddStringToObject(wm_comm,"ignore_output","yes"); else cJSON_AddStringToObject(wm_comm,"ignore_output","no");
+    if (command->skip_verification) cJSON_AddStringToObject(wm_comm,"skip_verification","yes"); else cJSON_AddStringToObject(wm_comm,"skip_verification","no");
+    cJSON_AddNumberToObject(wm_comm,"interval",command->interval);
+    if (command->tag) cJSON_AddStringToObject(wm_comm,"tag",command->tag);
+    if (command->command) cJSON_AddStringToObject(wm_comm,"command",command->command);
+    if (command->md5_hash) cJSON_AddStringToObject(wm_comm,"verify_md5",command->md5_hash);
+    if (command->sha1_hash) cJSON_AddStringToObject(wm_comm,"verify_sha1",command->sha1_hash);
+    if (command->sha256_hash) cJSON_AddStringToObject(wm_comm,"verify_sha256",command->sha256_hash);
+
+    cJSON_AddItemToObject(root,"command",wm_comm);
+
+    return root;
+}
+
 
 // Destroy data
 

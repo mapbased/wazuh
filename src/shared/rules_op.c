@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -344,6 +345,9 @@ int OS_ReadXMLRules(const char *rulefile,
                     config_ruleinfo->dstip = (os_ip **)
                                              realloc(config_ruleinfo->dstip,
                                                      (ip_s + 2) * sizeof(os_ip *));
+                    if(!config_ruleinfo->dstip) {
+                        merror_exit(MEM_ERROR, errno, strerror(errno));
+                    }
 
                     /* Allocate memory for the individual entries */
                     os_calloc(1, sizeof(os_ip),
@@ -972,10 +976,6 @@ static RuleInfo *_OS_AllocateRule()
     ruleinfo_pt->action = NULL;
     ruleinfo_pt->location = NULL;
 
-    /* Zero last matched events */
-    ruleinfo_pt->__frequency = 0;
-    ruleinfo_pt->last_events = NULL;
-
     /* Zero the list of previous matches */
     ruleinfo_pt->sid_prev_matched = NULL;
     ruleinfo_pt->group_prev_matched = NULL;
@@ -984,6 +984,8 @@ static RuleInfo *_OS_AllocateRule()
     ruleinfo_pt->group_search = NULL;
 
     ruleinfo_pt->event_search = NULL;
+
+    ruleinfo_pt->mutex = (pthread_mutex_t) PTHREAD_MUTEX_INITIALIZER;
 
     return (ruleinfo_pt);
 }

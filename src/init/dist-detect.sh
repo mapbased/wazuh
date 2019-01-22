@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Wazuh Distribution Detector
-# Copyright (C) 2016 Wazuh Inc.
+# Copyright (C) 2015-2019, Wazuh Inc.
 # November 18, 2016.
 #
 # This program is a free software; you can redistribute it
@@ -29,8 +29,8 @@ else
     # CentOS
     if [ -r "/etc/centos-release" ]; then
         DIST_NAME="centos"
-        DIST_VER=`sed -rn 's/.* ([0-9]{1,2})\.[0-9]{1,2}.*/\1/p' /etc/centos-release`
-        DIST_SUBVER=`sed -rn 's/.* [0-9]{1,2}\.([0-9]{1,2}).*/\1/p' /etc/centos-release`
+        DIST_VER=`sed -rn 's/.* ([0-9]{1,2})\.*[0-9]{0,2}.*/\1/p' /etc/centos-release`
+        DIST_SUBVER=`sed -rn 's/.* [0-9]{1,2}\.*([0-9]{0,2}).*/\1/p' /etc/centos-release`
 
     # Fedora
     elif [ -r "/etc/fedora-release" ]; then
@@ -44,8 +44,8 @@ else
         else
             DIST_NAME="rhel"
         fi
-        DIST_VER=`sed -rn 's/.* ([0-9]{1,2})\.[0-9]{1,2}.*/\1/p' /etc/redhat-release`
-        DIST_SUBVER=`sed -rn 's/.* [0-9]{1,2}\.([0-9]{1,2}).*/\1/p' /etc/redhat-release`
+        DIST_VER=`sed -rn 's/.* ([0-9]{1,2})\.*[0-9]{0,2}.*/\1/p' /etc/redhat-release`
+        DIST_SUBVER=`sed -rn 's/.* [0-9]{1,2}\.*([0-9]{0,2}).*/\1/p' /etc/redhat-release`
 
     # Ubuntu
     elif [ -r "/etc/lsb-release" ]; then
@@ -65,7 +65,7 @@ else
         DIST_NAME="suse"
         DIST_VER=`sed -rn 's/.*VERSION = ([0-9]{1,2}).*/\1/p' /etc/SuSE-release`
         DIST_SUBVER=`sed -rn 's/.*PATCHLEVEL = ([0-9]{1,2}).*/\1/p' /etc/SuSE-release`
-        if ["$DIST_SUBVER" = ""]; then #openSuse
+        if [ "$DIST_SUBVER" = "" ]; then #openSuse
           DIST_SUBVER=`sed -rn 's/.*VERSION = ([0-9]{1,2})\.([0-9]{1,2}).*/\1/p' /etc/SuSE-release`
         fi
 
@@ -108,8 +108,8 @@ else
     # AIX
     elif [ "$(uname)" = "AIX" ]; then
         DIST_NAME="AIX"
-        DIST_VER=$(uname -r | cut -d\. -f2)
-        DIST_SUBVER=$(uname -r | cut -d\. -f3)
+        DIST_VER=$(oslevel | cut -d\. -f1)
+        DIST_SUBVER=$(oslevel | cut -d\. -f2)
 
     # BSD
     elif [ "X$(uname)" = "XOpenBSD" -o "X$(uname)" = "XNetBSD" -o "X$(uname)" = "XFreeBSD" -o "X$(uname)" = "XDragonFly" ]; then

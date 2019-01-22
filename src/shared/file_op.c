@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -12,6 +13,8 @@
 
 #include "shared.h"
 #include "version_op.h"
+
+#include "../external/zlib/zlib.h"
 
 #ifndef WIN32
 #include <regex.h>
@@ -1103,10 +1106,7 @@ void goDaemon()
 int checkVista()
 {
     /* Check if the system is Vista (must be called during the startup) */
-    const char *m_uname;
     isVista = 0;
-
-    m_uname = getuname();
 
     OSVERSIONINFOEX osvi;
     BOOL bOsVersionInfoEx;
@@ -1124,10 +1124,7 @@ int checkVista()
 
     if (osvi.dwMajorVersion >= 6) {
         isVista = 1;
-        minfo("Windows version is 6.0 or newer. (%s).", m_uname);
     }
-    else
-        minfo("Windows version is older than 6.0. (%s).", m_uname);
 
     return (isVista);
 }
@@ -1861,6 +1858,44 @@ const char *getuname()
     return (ret);
 }
 
+// Move to the directory where this executable lives in
+
+void w_ch_exec_dir() {
+    TCHAR path[2048] = { 0 };
+    DWORD last_error;
+    int ret;
+
+    /* Get full path to the directory this executable lives in */
+    ret = GetModuleFileName(NULL, path, sizeof(path));
+
+    /* Check for errors */
+    if (!ret) {
+        print_out(GMF_ERROR);
+
+        /* Get last error */
+        last_error = GetLastError();
+
+        /* Look for errors */
+        switch (last_error) {
+        case ERROR_INSUFFICIENT_BUFFER:
+            print_out(GMF_BUFF_ERROR, ret, sizeof(path));
+            break;
+        default:
+            print_out(GMF_UNKN_ERROR, last_error);
+        }
+
+        exit(EXIT_FAILURE);
+    }
+
+    /* Remove file name from path */
+    PathRemoveFileSpec(path);
+
+    /* Move to correct directory */
+    if (chdir(path)) {
+        print_out(CHDIR_ERROR, path, errno, strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+}
 
 #endif /* WIN32 */
 
@@ -2053,6 +2088,83 @@ int OS_MoveFile(const char *src, const char *dst) {
     fclose(fp_src);
     fclose(fp_dst);
     return status ? status : unlink(src);
+}
+
+int w_copy_file(const char *src, const char *dst,char mode,char * message,int silent) {
+    FILE *fp_src;
+    FILE *fp_dst;
+    size_t count_r;
+    size_t count_w;
+    char buffer[4096];
+    int status = 0;
+
+    fp_src = fopen(src, "r");
+
+    if (!fp_src) {
+        if(!silent) {
+            merror("At w_copy_file(): Couldn't open file '%s'", src);
+        }
+        return -1;
+    }
+
+    /* Append to file */
+    if(mode == 'a'){
+        fp_dst = fopen(dst, "a");
+    }
+    else {
+        fp_dst = fopen(dst, "w");
+    }
+
+
+    if (!fp_dst) {
+        if(!silent) {
+            merror("At w_copy_file(): Couldn't open file '%s'", dst);
+        }
+        fclose(fp_src);
+        return -1;
+    }
+
+    /* Write message to the destination file */
+    if(message){
+        count_r = strlen(message);
+        count_w = fwrite(message, 1, count_r, fp_dst);
+
+        if (count_w != count_r || ferror(fp_dst)) {
+            if(!silent) {
+                merror("Couldn't write file '%s'", dst);
+            }
+            status = -1;
+            fclose(fp_src);
+            fclose(fp_dst);
+            return status;
+        }
+    }
+
+    while (!feof(fp_src)) {
+        count_r = fread(buffer, 1, 4096, fp_src);
+
+        if (ferror(fp_src)) {
+            if(!silent) {
+                merror("Couldn't read file '%s'", src);
+            }
+            status = -1;
+            break;
+        }
+
+        count_w = fwrite(buffer, 1, count_r, fp_dst);
+
+        if (count_w != count_r || ferror(fp_dst)) {
+            if(!silent) {
+                merror("Couldn't write file '%s'", dst);
+            }
+            status = -1;
+            break;
+        }
+    }
+
+    fclose(fp_src);
+    fclose(fp_dst);
+    return status;
 }
 
 // Make directory recursively
@@ -2294,6 +2406,9 @@ char ** wreaddir(const char * name) {
         }
 
         files = realloc(files, (i + 2) * sizeof(char *));
+        if(!files){
+           merror_exit(MEM_ERROR, errno, strerror(errno));
+        }
         files[i++] = strdup(dirent->d_name);
     }
 
@@ -2371,4 +2486,166 @@ FILE * wfopen(const char * pathname, const char * mode) {
 #else
     return fopen(pathname, mode);
 #endif
+}
+
+int w_remove_line_from_file(char *file,int line){
+    FILE *fp_src;
+    FILE *fp_dst;
+    size_t count_w;
+    char buffer[OS_SIZE_65536 + 1];
+    char destination[PATH_MAX] = {0};
+
+    fp_src = fopen(file, "r");
+
+    if (!fp_src) {
+        merror("At remove_line_from_file(): Couldn't open file '%s'", file);
+        return -1;
+    }
+
+    snprintf(destination,PATH_MAX,"%s.back",file);
+
+    /* Write to file */
+    fp_dst = fopen(destination, "w");
+
+    if (!fp_dst) {
+        mdebug1("At remove_line_from_file(): Couldn't open file '%s'", destination);
+        fclose(fp_src);
+        return -1;
+    }
+
+    /* Write message to the destination file */
+    int i = 0;
+    while (fgets(buffer, OS_SIZE_65536 + 1, fp_src) != NULL) {
+
+        if(i != line){
+            count_w = fwrite(buffer, 1, strlen(buffer) , fp_dst);
+
+            if (count_w != strlen(buffer) || ferror(fp_dst)) {
+                merror("At remove_line_from_file(): Couldn't write file '%s'", destination);
+                break;
+            }
+        }
+        i++;
+    }
+
+    fclose(fp_src);
+    fclose(fp_dst);
+
+    return w_copy_file(destination,file,'w',NULL,0);
+}
+
+
+/* file to gzip */
+int w_compress_gzfile(const char *filesrc, const char *filedst) {
+    FILE *fd;
+    gzFile gz_fd;
+    char *buf;
+    int len;
+    int err;
+
+    /* Set umask */
+    umask(0027);
+
+    /* Read file */
+    fd = fopen(filesrc, "rb");
+    if (!fd) {
+        merror("in w_compress_gzfile(): fopen error %s (%d):'%s'",
+                filesrc,
+                errno,
+                strerror(errno));
+        return -1;
+    }
+
+    /* Open compressed file */
+    gz_fd = gzopen(filedst, "w");
+    if (!gz_fd) {
+        fclose(fd);
+        merror("in w_compress_gzfile(): gzopen error %s (%d):'%s'",
+                filedst,
+                errno,
+                strerror(errno));
+        return -1;
+    }
+
+    os_calloc(OS_SIZE_8192 + 1, sizeof(char), buf);
+    for (;;) {
+        len = fread(buf, 1, OS_SIZE_8192, fd);
+        if (len <= 0) {
+            break;
+        }
+
+        if (gzwrite(gz_fd, buf, (unsigned)len) != len) {
+            merror("in w_compress_gzfile(): Compression error: %s",
+                    gzerror(gz_fd, &err));
+            fclose(fd);
+            gzclose(gz_fd);
+            os_free(buf);
+            return -1;
+        }
+    }
+
+    fclose(fd);
+    gzclose(gz_fd);
+    os_free(buf);
+    return 0;
+}
+
+/* gzip to file */
+int w_uncompress_gzfile(const char *gzfilesrc, const char *gzfiledst) {
+    FILE *fd;
+    gzFile gz_fd;
+    char *buf;
+    int len;
+    int err;
+    struct stat statbuf;
+
+#ifdef WIN32
+    /* Win32 does not have lstat */
+    if (stat(gzfilesrc, &statbuf) < 0)
+#else
+    if (lstat(gzfilesrc, &statbuf) < 0)
+#endif
+    {
+        return -1;
+    }
+    /* Set umask */
+    umask(0027);
+
+    /* Read file */
+    fd = fopen(gzfiledst, "wb");
+    if (!fd) {
+        merror("in w_uncompress_gzfile(): fopen error %s (%d):'%s'",
+                gzfiledst,
+                errno,
+                strerror(errno));
+        return -1;
+    }
+
+    /* Open compressed file */
+    gz_fd = gzopen(gzfilesrc, "rb");
+    if (!gz_fd) {
+        merror("in w_uncompress_gzfile(): gzopen error '%s'",
+                gzerror(gz_fd, &err));
+        fclose(fd);
+        return -1;
+    }
+
+    os_calloc(OS_SIZE_8192, sizeof(char), buf);
+    do {
+        if (len = gzread(gz_fd, buf, OS_SIZE_8192), len == Z_BUF_ERROR) {
+            merror("in w_uncompress_gzfile(): gzfread error: '%s'",
+                    gzerror(gz_fd, &err));
+            fclose(fd);
+            gzclose(gz_fd);
+            return -1;
+        }
+        fwrite(buf, 1, len, fd);
+        buf[0] = '\0';
+    } while (len != Z_OK);
+
+    os_free(buf);
+    fclose(fd);
+    gzclose(gz_fd);
+
+    return 0;
 }

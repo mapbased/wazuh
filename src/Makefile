@@ -1,4 +1,13 @@
+# Copyright (C) 2015-2019, Wazuh Inc.
 # TODO: mysql and postgresql?
+#
+# Copyright (C) 2015-2019, Wazuh Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2 of the License, or
+# (at your option) any later version.
+#
 
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 uname_P := $(shell sh -c 'uname -p 2>/dev/null || echo not')
@@ -18,7 +27,6 @@ EXTERNAL_PROCPS=external/procps/
 EXTERNAL_LIBDB=external/libdb/build_unix/
 endif
 MAXAGENTS?=14000
-REUSE_ID?=no
 # XXX Becareful NO EXTRA Spaces here
 PREFIX?=/var/ossec
 PG_CONFIG?=pg_config
@@ -39,7 +47,6 @@ USE_GEOIP?=no
 USE_INOTIFY=no
 USE_BIG_ENDIAN=no
 USE_AUDIT=no
-USE_EXEC_ENVIRON=no
 USE_FRAMEWORK_LIB=no
 
 ifneq ($(HAS_CHECKMODULE),)
@@ -63,10 +70,6 @@ DEFINES+=-DGROUPGLOBAL=\"${OSSEC_GROUP}\"
 DEFINES+=-DMAILUSER=\"${OSSEC_USER_MAIL}\"
 DEFINES+=-D${uname_S}
 
-ifneq (,$(filter ${REUSE_ID},yes y Y 1))
-	DEFINES+=-DREUSE_ID
-endif
-
 OSSEC_CFLAGS = ${CFLAGS}
 OSSEC_LDFLAGS = ${LDFLAGS}
 OSSEC_LIBS = $(LIBS)
@@ -83,7 +86,6 @@ ifeq (${uname_S},Linux)
 #		OSSEC_LDFLAGS+=-lmagic
 		CFLAGS+=-Wl,--start-group
 		USE_AUDIT=yes
-		USE_EXEC_ENVIRON=yes
 ifneq (,$(filter ${USE_AUDIT},yes y Y 1))
 		CFLAGS+=-I$(EXTERNAL_AUDIT)lib
 endif
@@ -194,10 +196,6 @@ ifdef DEBUG
 else
 	OFLAGS+=-O2
 endif #DEBUG
-
-ifneq (,$(filter ${USE_EXEC_ENVIRON},yes y Y 1))
-	DEFINES+=-DUSE_EXEC_ENVIRON
-endif
 
 OSSEC_CFLAGS+=${OFLAGS}
 OSSEC_LDFLAGS+=${OFLAGS}
@@ -356,8 +354,7 @@ ifdef DATABASE
 			endif
 		endif # MYSQL_LIBS
 
-		OSSEC_LDFLAGS+=${ML}
-		OSSEC_LIBS+=-lmysqlclient
+		OSSEC_LIBS+=${ML} -lmysqlclient
 
 	else # DATABASE
 
@@ -378,8 +375,7 @@ ifdef DATABASE
 
 			# XXX need some basic autodetech stuff here.
 
-			OSSEC_LDFLAGS+=${PL}
-			OSSEC_LIBS+=-lpq
+			OSSEC_LIBS+=${PL} -lpq
 
 		endif # pgsql
 	endif # mysql
@@ -432,7 +428,6 @@ help: failtarget
 	@echo "   make DEBUGAD                 Enables extra debugging logging in ossec-analysisd"
 	@echo "   make PREFIX=/path            Install OSSEC to '/path'. Defaults to /var/ossec"
 	@echo "   make MAXAGENTS=NUMBER        Set the number of maximum agents to NUMBER. Defaults to 2048"
-	@echo "   make REUSE_ID=yes            Enables agent ID re-use"
 	@echo "   make ONEWAY=no               Disables manager's ACK towards agent. It allows connecting agents without backward connection from manager"
 	@echo "   make CLEANFULL=no            Makes the alert mailing subject clear in the format: '<location> - <level> - <description>'"
 	@echo "   make RESOURCES_URL           Set the Wazuh resources URL"
@@ -443,8 +438,10 @@ help: failtarget
 	@echo "   make USE_SELINUX=0           Build with SELinux policies"
 	@echo "   make USE_AUDIT=1             Build with audit service support"
 	@echo "   make USE_FRAMEWORK_LIB=0     Use external SQLite library for the framework"
-	@echo "   make USE_EXEC_ENVIRON=no     Use modern non-standard execvpe in Modulesd"
 	@echo "   make OFLAGS=-Ox              Overrides optimization level"
+	@echo "   make DISABLE_SHARED=true	   Not to build the Wazuh shared library (for unsupported systems)"
+	@echo "   make DISABLE_SYSC=true       Not to build the Syscollector module (for unsupported systems)"
+	@echo "   make DISABLE_CISCAT=true     Not to build the CIS-CAT module (for unsupported systems)"
 	@echo
 	@echo "Database options: "
 	@echo "   make DATABASE=mysql          Build with MYSQL Support"
@@ -474,7 +471,6 @@ settings:
 	@echo "    DEBUGAD             ${DEBUGAD}"
 	@echo "    PREFIX:             ${PREFIX}"
 	@echo "    MAXAGENTS:          ${MAXAGENTS}"
-	@echo "    REUSE_ID:           ${REUSE_ID}"
 	@echo "    DATABASE:           ${DATABASE}"
 	@echo "    ONEWAY:             ${ONEWAY}"
 	@echo "    CLEANFULL:          ${CLEANFULL}"
@@ -492,7 +488,6 @@ settings:
 	@echo "    USE_BIG_ENDIAN:     ${USE_BIG_ENDIAN}"
 	@echo "    USE_SELINUX:        ${USE_SELINUX}"
 	@echo "    USE_AUDIT:          ${USE_AUDIT}"
-	@echo "    USE_EXEC_ENVIRON:   ${USE_EXEC_ENVIRON}"
 	@echo "    USE_FRAMEWORK_LIB:  ${USE_FRAMEWORK_LIB}"
 	@echo "Mysql settings:"
 	@echo "    includes:           ${MI}"
@@ -578,6 +573,7 @@ $(SELINUX_POLICY): $(SELINUX_MODULE)
 $(SELINUX_MODULE): $(SELINUX_ENFORCEMENT)
 	checkmodule -M -m -o $@ $?
 
+test_programs = test_os_zlib test_os_xml test_os_regex test_os_crypto test_os_net test_shared
 
 WINDOWS_BINS:=win32/ossec-agent.exe win32/ossec-agent-eventchannel.exe win32/ossec-rootcheck.exe win32/manage_agents.exe win32/setup-windows.exe win32/setup-syscheck.exe win32/setup-iis.exe win32/add-localfile.exe win32/os_win32ui.exe win32/agent-auth.exe
 
@@ -586,7 +582,7 @@ $(error Do not use 'winagent' directly, use 'TARGET=winagent')
 endif
 .PHONY: winagent
 winagent: external win32/libwinpthread-1.dll wazuh_modules/syscollector/syscollector_win_ext.dll
-	${MAKE} ${WINDOWS_BINS} CFLAGS="-DCLIENT -D_POSIX_C_SOURCE -DWIN32" LIBS="-lwsock32 -lwevtapi -lshlwapi -lcomctl32 -ladvapi32 -lgdi32 -liphlpapi -lws2_32 -lcrypt32"
+	${MAKE} ${WINDOWS_BINS} CFLAGS="-DCLIENT -D_POSIX_C_SOURCE -DWIN32 -DPSAPI_VERSION=1" LIBS="-lwsock32 -lwevtapi -lshlwapi -lcomctl32 -ladvapi32 -lkernel32 -lpsapi -lgdi32 -liphlpapi -lws2_32 -lcrypt32"
 	cd win32/ && ./unix2dos.pl ossec.conf > default-ossec.conf
 	cd win32/ && ./unix2dos.pl help.txt > help_win.txt
 	cd win32/ && ./unix2dos.pl ../../etc/internal_options.conf > internal_options.conf
@@ -735,7 +731,7 @@ $(EXTERNAL_CURL)Makefile:
 	cd $(EXTERNAL_CURL) && ./configure --with-darwinssl --disable-ldap --without-libidn2
 else
 $(EXTERNAL_CURL)Makefile: $(OPENSSL_LIB)
-	cd $(EXTERNAL_CURL) && CPPFLAGS="-fPIC -I${ROUTE_PATH}/${EXTERNAL_OPENSSL}include" LDFLAGS="-L${ROUTE_PATH}/${EXTERNAL_OPENSSL}" LIBS="-ldl -lpthread" ./configure --disable-ldap
+	cd $(EXTERNAL_CURL) && CPPFLAGS="-fPIC -I${ROUTE_PATH}/${EXTERNAL_OPENSSL}include" LDFLAGS="-L${ROUTE_PATH}/${EXTERNAL_OPENSSL}" LIBS="-ldl -lpthread" ./configure --disable-ldap --without-libidn2
 endif
 
 
@@ -810,7 +806,7 @@ WAZUHEXT_LIB = libwazuhext.$(SHARED)
 BUILD_LIBS = libwazuh.a $(WAZUHEXT_LIB)
 endif
 
-$(BUILD_SERVER) $(BUILD_AGENT) $(WINDOWS_BINS): $(BUILD_LIBS)
+$(BUILD_SERVER) $(BUILD_AGENT) $(WINDOWS_BINS) $(test_programs): $(BUILD_LIBS)
 
 #### os_xml ########
 
@@ -1114,7 +1110,7 @@ manage_agents: ${addagent_o}
 
 #### Util ##########
 
-util_programs = syscheck_update clear_stats agent_control syscheck_control rootcheck_control verify-agent-conf ossec-regex
+util_programs = syscheck_update clear_stats agent_control syscheck_control rootcheck_control verify-agent-conf ossec-regex parallel-regex
 
 $(util_programs): $(BUILD_LIBS)
 
@@ -1146,6 +1142,9 @@ rootcheck_control: util/rootcheck_control.o addagent/validate.o
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 ossec-regex: util/ossec-regex.o
+	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
+
+parallel-regex: util/parallel-regex.o
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 #### rootcheck #####
@@ -1225,7 +1224,7 @@ os_auth/%.o: os_auth/%.c
 agent-auth: addagent/validate.o os_auth/main-client.o os_auth/ssl.o os_auth/check_cert.o
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
-ossec-authd: addagent/validate.o os_auth/main-server.o os_auth/local-server.o os_auth/ssl.o os_auth/check_cert.o os_auth/config.o
+ossec-authd: addagent/validate.o os_auth/main-server.o os_auth/local-server.o os_auth/ssl.o os_auth/check_cert.o os_auth/config.o os_auth/authcom.o
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 #### integratord #####
@@ -1341,7 +1340,7 @@ ossec-logtest: ${analysisd_test_o} ${output_o} ${format_o} analysisd/testrule-te
 ossec-analysisd: ${analysisd_live_o} analysisd/analysisd-live.o ${output_o} ${format_o} alerts.a cdb.a decoders-live.a
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
-ossec-makelists: analysisd/makelists-live.o ${analysisd_live_o} ${format_o} alerts.a cdb.a decoders-live.a
+ossec-makelists: analysisd/makelists-live.o ${filter-out analysisd/state-live.o, ${analysisd_live_o}} ${format_o} alerts.a cdb.a decoders-live.a
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 ### wazuh-modulesd ##
@@ -1365,14 +1364,13 @@ endif
 
 CFLAGS_TEST = -g -O0 --coverage
 
-LDFLAGS_TEST = -lcheck -lm -pthread -lrt -lsubunit
+LIBS_TEST = -lcheck -lm -lrt -lsubunit
 
 ifdef TEST
 	OSSEC_CFLAGS+=${CFLAGS_TEST}
-	OSSEC_LDFLAGS+=${LDFLAGS_TEST}
+	OSSEC_LDFLAGS+=${CFLAGS_TEST}
+	OSSEC_LIBS+=${LIBS_TEST}
 endif #TEST
-
-test_programs = test_os_zlib test_os_xml test_os_regex test_os_crypto test_os_net test_shared
 
 .PHONY: test run_tests build_tests test_valgrind test_coverage
 
@@ -1401,10 +1399,10 @@ test_os_regex: tests/test_os_regex.c ${os_regex_o}
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 test_os_crypto: tests/test_os_crypto.c ${crypto_o} ${shared_o} ${os_xml_o} ${os_net_o} ${os_regex_o}
-	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
+	${OSSEC_CCBIN} ${OSSEC_CFLAGS} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 test_os_net: tests/test_os_net.c ${os_net_o} ${shared_o} ${os_regex_o} ${os_xml_o}
-	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
+	${OSSEC_CCBIN} ${OSSEC_CFLAGS} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
 test_shared: tests/test_shared.c ${shared_o} ${os_xml_o} ${os_net_o} ${os_regex_o}
 	${OSSEC_CCBIN} ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
@@ -1480,14 +1478,17 @@ win32/setup-iis.exe: win32/setup-iis.o
 win32/add-localfile.exe: win32/add-localfile.o
 	${OSSEC_CCBIN} -DARGV0=\"add-localfile\" ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -o $@
 
-win32/resource.o: win32/ui/win32ui.rc
+win32/ui_resource.o: win32/ui/win32ui.rc
 	${OSSEC_WINDRES} -i $< -o $@
 
-win32/os_win32ui.exe: win32/resource.o win32/win_service_rk.o ${win32_ui_o} addagent/b64.o
+win32/auth_resource.o: win32/agent-auth.rc
+	${OSSEC_WINDRES} -i $< -o $@
+
+win32/os_win32ui.exe: win32/ui_resource.o win32/win_service_rk.o ${win32_ui_o} addagent/b64.o
 	${OSSEC_CCBIN} -DARGV0=\"ossec-win32ui\" ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -mwindows -o $@
 
-win32/agent-auth.exe: win32/win_service_rk.o win32/agent_auth.o addagent/validate.o
-	${OSSEC_CCBIN} -DARGV0=\"agent-auth\" -DOSSECHIDS ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -lshlwapi -lwsock32 -lsecur32 -flto -o $@
+win32/agent-auth.exe: win32/auth_resource.o win32/win_service_rk.o os_auth/main-client.o os_auth/ssl.o os_auth/main-client.o os_auth/check_cert.o addagent/validate.o
+	${OSSEC_CCBIN} -DARGV0=\"agent-auth\" -DOSSECHIDS ${OSSEC_LDFLAGS} $^ ${OSSEC_LIBS} -lshlwapi -lwsock32 -lsecur32 -lws2_32 -flto -o $@
 
 ####################
 #### Clean #########
@@ -1559,6 +1560,9 @@ clean-framework:
 	${MAKE} -C ../framework clean
 
 clean-windows:
+	rm -f libwazuh.a
+	rm -f libwazuhext.dll
+	rm -f wazuh_modules/syscollector/*.o
 	rm -f wazuh_modules/syscollector/syscollector_win_ext.dll
 	rm -f win32/LICENSE.txt
 	rm -f win32/help_win.txt

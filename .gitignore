@@ -37,6 +37,7 @@ src/ossec-maild
 src/ossec-makelists
 src/ossec-monitord
 src/ossec-regex
+src/parallel-regex
 src/ossec-remoted
 src/ossec-reportd
 src/ossec-syscheckd
@@ -68,6 +69,9 @@ src/win32/REVISION
 .cproject
 .project
 .settings/
+
+# Visual Studio Code files
+.vscode
 
 # temporary vim files
 *.swp

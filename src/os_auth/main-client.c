@@ -1,4 +1,5 @@
-/* Copyright (C) 2010 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2010 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -36,15 +37,17 @@ static void help_agent_auth(void) __attribute__((noreturn));
 static void help_agent_auth()
 {
     print_header();
-    print_out("  %s: -[VhdtI] [-g group] [-D dir] [-m IP address] [-p port] [-A name] [-c ciphers] [-v path] [-x path] [-k path] [-P pass] [-G group] [-i IP address]", ARGV0);
+    print_out("  %s: -[Vhdti] [-g group] [-D dir] [-m IP address] [-p port] [-A name] [-c ciphers] [-v path] [-x path] [-k path] [-P pass] [-G group] [-I IP address]", ARGV0);
     print_out("    -V          Version and license message");
     print_out("    -h          This help message");
     print_out("    -d          Execute in debug mode. This parameter");
     print_out("                can be specified multiple times");
     print_out("                to increase the debug level.");
     print_out("    -t          Test configuration");
+#ifndef WIN32
     print_out("    -g <group>  Group to run as (default: %s)", GROUPGLOBAL);
     print_out("    -D <dir>    Directory to chroot into (default: %s)", DEFAULTDIR);
+#endif
     print_out("    -m <addr>   Manager IP address");
     print_out("    -p <port>   Manager port (default: %d)", DEFAULT_PORT);
     print_out("    -A <name>   Agent name (default: hostname)");
@@ -69,12 +72,12 @@ int main(int argc, char **argv)
     int auto_method = 0;
 #ifndef WIN32
     gid_t gid = 0;
+    const char *group = GROUPGLOBAL;
 #endif
 
     int sock = 0, port = DEFAULT_PORT, ret = 0;
     char *ciphers = DEFAULT_CIPHERS;
     const char *dir = DEFAULTDIR;
-    const char *group = GROUPGLOBAL;
     char *authpass = NULL;
     const char *manager = NULL;
     const char *ipaddress = NULL;
@@ -86,22 +89,28 @@ int main(int argc, char **argv)
     const char *sender_ip = NULL;
     int use_src_ip = 0;
     char lhostname[512 + 1];
-    char buf[4096 + 1];
+    char * buf;
     SSL_CTX *ctx;
     SSL *ssl;
     BIO *sbio;
     bio_err = 0;
-    buf[4096] = '\0';
     int debug_level = 0;
 
 #ifdef WIN32
     WSADATA wsaData;
+
+    // Move to the directory where this executable lives in
+    w_ch_exec_dir();
 #endif
 
     /* Set the name */
     OS_SetName(ARGV0);
 
-    while ((c = getopt(argc, argv, "VdhtgG:m:p:A:c:v:x:k:D:P:a:I:i")) != -1) {
+    while ((c = getopt(argc, argv, "VdhtG:m:p:A:c:v:x:k:D:P:a:I:i"
+#ifndef WIN32
+    "g:D:"
+#endif
+    )) != -1) {
         switch (c) {
             case 'V':
                 print_version();
@@ -113,6 +122,7 @@ int main(int argc, char **argv)
                 debug_level = 1;
                 nowDebug();
                 break;
+#ifndef WIN32
             case 'g':
                 if (!optarg) {
                     merror_exit("-g needs an argument");
@@ -120,11 +130,12 @@ int main(int argc, char **argv)
                 group = optarg;
                 break;
             case 'D':
-            if (!optarg) {
-                merror_exit("-g needs an argument");
-            }
-            dir = optarg;
-            break;
+                if (!optarg) {
+                    merror_exit("-g needs an argument");
+                }
+                dir = optarg;
+                break;
+#endif
             case 't':
                 test_config = 1;
                 break;
@@ -212,6 +223,16 @@ int main(int argc, char **argv)
         }
     }
 
+    /* Exit here if test config is set */
+    if (test_config) {
+        exit(0);
+    }
+
+    if (sender_ip && use_src_ip) {
+        merror("Options '-I' and '-i' are uncompatible.");
+        exit(1);
+    }
+
     /* Start daemon */
     mdebug1(STARTED_MSG);
 
@@ -220,16 +241,6 @@ int main(int argc, char **argv)
     gid = Privsep_GetGroup(group);
     if (gid == (gid_t) - 1) {
         merror_exit(USER_ERROR, "", group);
-    }
-
-    if (sender_ip && use_src_ip) {
-        merror("Options '-I' and '-i' are uncompatible.");
-        exit(1);
-    }
-
-    /* Exit here if test config is set */
-    if (test_config) {
-        exit(0);
     }
 
     /* Privilege separation */
@@ -249,6 +260,7 @@ int main(int argc, char **argv)
     if (WSAStartup(MAKEWORD(2, 0), &wsaData) != 0) {
         merror_exit("WSAStartup() failed");
     }
+
 #endif /* WIN32 */
 
     /* Start up message */
@@ -285,6 +297,9 @@ int main(int argc, char **argv)
         exit(1);
     }
 
+    os_calloc(OS_SIZE_65536 + OS_SIZE_4096 + 1, sizeof(char), buf);
+    buf[OS_SIZE_65536 + OS_SIZE_4096] = '\0';
+
     /* Checking if there is a custom password file */
     if (authpass == NULL) {
         FILE *fp;
@@ -308,13 +323,14 @@ int main(int argc, char **argv)
         }
     }
     if (!authpass) {
-        printf("WARN: No authentication password provided.\n");
+        printf("INFO: No authentication password provided.\n");
     }
 
     /* Connect via TCP */
     sock = OS_ConnectTCP(port, ipaddress, 0);
     if (sock <= 0) {
         merror("Unable to connect to %s:%d", ipaddress, port);
+        free(buf);
         exit(1);
     }
 
@@ -327,6 +343,7 @@ int main(int argc, char **argv)
     if (ret <= 0) {
         ERR_print_errors_fp(stderr);
         merror("SSL error (%d). Exiting.", ret);
+        free(buf);
         exit(1);
     }
 
@@ -339,7 +356,8 @@ int main(int argc, char **argv)
     if (ca_cert) {
         printf("INFO: Verifying manager's certificate\n");
         if (check_x509_cert(ssl, manager) != VERIFY_TRUE) {
-            mdebug1("Unable to verify server certificate.");
+            merror("Unable to verify server certificate.");
+            free(buf);
             exit(1);
         }
     }
@@ -354,15 +372,25 @@ int main(int argc, char **argv)
     }
 
     if(centralized_group){
-        char opt_buf[256] = {0};
-        snprintf(opt_buf,254," G:'%s'",centralized_group);
-        strncat(buf,opt_buf,254);
+        char * opt_buf = NULL;
+        os_calloc(OS_SIZE_65536, sizeof(char), opt_buf);
+        snprintf(opt_buf,OS_SIZE_65536," G:'%s'",centralized_group);
+        strncat(buf,opt_buf,OS_SIZE_65536);
+        free(opt_buf);
     }
 
     if(sender_ip){
-        char opt_buf[256] = {0};
-        snprintf(opt_buf,254," IP:'%s'",sender_ip);
-        strncat(buf,opt_buf,254);
+		/* Check if this is strictly an IP address using a regex */
+		if (OS_IsValidIP(sender_ip, NULL))
+		{
+			char opt_buf[256] = {0};
+			snprintf(opt_buf,254," IP:'%s'",sender_ip);
+			strncat(buf,opt_buf,254);
+		} else {
+			merror("Invalid IP address provided with '-I' option.");
+			free(buf);
+			exit(1);
+		}
     }
 
     if(use_src_ip)
@@ -374,18 +402,18 @@ int main(int argc, char **argv)
 
     /* Append new line character */
     strncat(buf,"\n",1);
-
     ret = SSL_write(ssl, buf, strlen(buf));
     if (ret < 0) {
         printf("SSL write error (unable to send message.)\n");
         ERR_print_errors_fp(stderr);
+        free(buf);
         exit(1);
     }
 
     printf("INFO: Send request to manager. Waiting for reply.\n");
 
     while (1) {
-        ret = SSL_read(ssl, buf, sizeof(buf) - 1);
+        ret = SSL_read(ssl, buf, OS_SIZE_65536 + OS_SIZE_4096);
         switch (SSL_get_error(ssl, ret)) {
             case SSL_ERROR_NONE:
                 buf[ret] = '\0';
@@ -407,13 +435,15 @@ int main(int argc, char **argv)
                     tmpstr = strchr(key, '\'');
                     if (!tmpstr) {
                         printf("ERROR: Invalid key received. Closing connection.\n");
+                        free(buf);
                         exit(1);
                     }
                     *tmpstr = '\0';
                     entry = OS_StrBreak(' ', key, 4);
                     if (!OS_IsValidID(entry[0]) || !OS_IsValidName(entry[1]) ||
-                            !OS_IsValidName(entry[2]) || !OS_IsValidName(entry[3])) {
+                            !OS_IsValidIP(entry[2], NULL) || !OS_IsValidName(entry[3])) {
                         printf("ERROR: Invalid key received (2). Closing connection.\n");
+                        free(buf);
                         exit(1);
                     }
 
@@ -425,6 +455,7 @@ int main(int argc, char **argv)
 
                         if (!fp) {
                             printf("ERROR: Unable to open key file: %s", KEYSFILE_PATH);
+                            free(buf);
                             exit(1);
                         }
                         fprintf(fp, "%s\n", key);
@@ -440,10 +471,12 @@ int main(int argc, char **argv)
                     printf("ERROR: Unable to create key. Either wrong password or connection not accepted by the manager.\n");
                 }
                 printf("INFO: Connection closed.\n");
+                free(buf);
                 exit(!key_added);
                 break;
             default:
                 printf("ERROR: SSL read (unable to receive message)\n");
+                free(buf);
                 exit(1);
                 break;
         }
@@ -456,6 +489,7 @@ int main(int argc, char **argv)
     }
     SSL_CTX_free(ctx);
     close(sock);
+    free(buf);
 
     exit(0);
 }

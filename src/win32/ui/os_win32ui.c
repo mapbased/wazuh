@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -97,7 +98,7 @@ BOOL CALLBACK DlgProc(HWND hwnd, UINT Message, WPARAM wParam,
             SendMessage(hStatus, SB_SETPARTS,
                         sizeof(statwidths) / sizeof(int),
                         (LPARAM)statwidths);
-            SendMessage(hStatus, SB_SETTEXT, 0, (LPARAM)"http://wazuh.com");
+            SendMessage(hStatus, SB_SETTEXT, 0, (LPARAM)"https://wazuh.com");
 
 
             /* Initializing config */

@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -78,7 +79,7 @@ int rootcheck_init(int test_config)
     rootcheck.notify = QUEUE;
     rootcheck.scanall = 0;
     rootcheck.readall = 0;
-    rootcheck.disabled = 1;
+    rootcheck.disabled = RK_CONF_UNPARSED;
     rootcheck.skip_nfs = 0;
     rootcheck.alert_msg = NULL;
     rootcheck.time = ROOTCHECK_WAIT;

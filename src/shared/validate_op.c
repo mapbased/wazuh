@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -36,6 +37,7 @@ static char *_read_file(const char *high_name, const char *low_name, const char 
     char *buf_pt;
     char *tmp_buffer;
     char *ret;
+    int i;
 
 #ifndef WIN32
     if (isChroot()) {
@@ -92,14 +94,27 @@ static char *_read_file(const char *high_name, const char *low_name, const char 
             merror(FGETS_ERROR, def_file, buf);
             continue;
         }
-
-        /* Check for the low name */
+        
+        /* Prepare buf_pt to access the value for this option */
         *buf_pt = '\0';
         buf_pt++;
+        
+        /* Remove possible whitespaces between the low name and the equal sign */
+        i = (strlen(tmp_buffer) - 1);
+        while(tmp_buffer[i] == ' ')
+        {
+            tmp_buffer[i] = '\0';
+            i--;
+        }
+        
+        /* Check for the low name */
         if (strcmp(tmp_buffer, low_name) != 0) {
             continue;
         }
-
+        
+        /* Ignore possible whitespaces between the equal sign and the value for this option */
+        while(*buf_pt == ' ') buf_pt++;
+        
         /* Remove newlines or anything that will cause errors */
         tmp_buffer = strrchr(buf_pt, '\n');
         if (tmp_buffer) {

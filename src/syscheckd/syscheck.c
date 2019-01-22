@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -18,6 +19,9 @@
 // Global variables
 syscheck_config syscheck;
 pthread_cond_t audit_thread_started;
+pthread_cond_t audit_hc_started;
+pthread_cond_t audit_db_consistency;
+int sys_debug_level;
 
 #ifdef USE_MAGIC
 #include <magic.h>
@@ -55,12 +59,13 @@ static void read_internal(int debug_level)
 #ifndef WIN32
     syscheck.max_audit_entries = getDefine_Int("syscheck", "max_audit_entries", 1, 4096);
 #endif
+    sys_debug_level = getDefine_Int("syscheck", "debug", 0, 2);
 
     /* Check current debug_level
      * Command line setting takes precedence
      */
     if (debug_level == 0) {
-        debug_level = getDefine_Int("syscheck", "debug", 0, 2);
+        int debug_level = sys_debug_level;
         while (debug_level != 0) {
             nowDebug();
             debug_level--;
@@ -70,15 +75,27 @@ static void read_internal(int debug_level)
     return;
 }
 
+void free_syscheck_node_data(syscheck_node *data) {
+    if (!data) return;
+    if (data->checksum) free(data->checksum);
+    free(data);
+}
+
 // Initialize syscheck variables
 int fim_initialize() {
     /* Create store data */
     syscheck.fp = OSHash_Create();
     syscheck.local_hash = OSHash_Create();
-
+#ifndef WIN32
+    syscheck.inode_hash = OSHash_Create();
+#endif
     // Duplicate hash table to check for deleted files
     syscheck.last_check = OSHash_Create();
-
+    
+    if (!syscheck.fp || !syscheck.local_hash || !syscheck.last_check) merror_exit("At fim_initialize(): OSHash_Create() failed");
+    
+    OSHash_SetFreeDataPointer(syscheck.fp, (void (*)(void *))free_syscheck_node_data);
+    
     return 0;
 }
 
@@ -107,7 +124,7 @@ int Start_win32_Syscheck()
         /* Disabled */
         if (!syscheck.dir) {
             minfo(SK_NO_DIR);
-            dump_syscheck_entry(&syscheck, "", 0, 0, NULL, 0, NULL);
+            dump_syscheck_entry(&syscheck, "", 0, 0, NULL, 0, NULL, -1);
         } else if (!syscheck.dir[0]) {
             minfo(SK_NO_DIR);
         }
@@ -121,7 +138,7 @@ int Start_win32_Syscheck()
         }
 
         if (!syscheck.registry) {
-            dump_syscheck_entry(&syscheck, "", 0, 1, NULL, 0, NULL);
+            dump_syscheck_entry(&syscheck, "", 0, 1, NULL, 0, NULL, -1);
         }
         syscheck.registry[0].entry = NULL;
 
@@ -176,6 +193,21 @@ int Start_win32_Syscheck()
             for (r = 0; syscheck.ignore[r] != NULL; r++)
                 minfo("Ignoring: '%s'", syscheck.ignore[r]);
 
+        /* Print sregex ignores. */
+        if(syscheck.ignore_regex)
+            for (r = 0; syscheck.ignore_regex[r] != NULL; r++)
+                minfo("Ignoring sregex: '%s'", syscheck.ignore_regex[r]->raw);
+
+        /* Print registry ignores. */
+        if(syscheck.registry_ignore)
+            for (r = 0; syscheck.registry_ignore[r].entry != NULL; r++)
+                minfo("Ignoring registry: '%s'", syscheck.registry_ignore[r].entry);
+
+        /* Print sregex registry ignores. */
+        if(syscheck.registry_ignore_regex)
+            for (r = 0; syscheck.registry_ignore_regex[r].regex != NULL; r++)
+                minfo("Ignoring registry sregex: '%s'", syscheck.registry_ignore_regex[r].regex->raw);
+
         /* Print files with no diff. */
         if (syscheck.nodiff){
             r = 0;
@@ -228,8 +260,11 @@ int main(int argc, char **argv)
     int debug_level = 0;
     int test_config = 0, run_foreground = 0;
     const char *cfg = DEFAULTCPATH;
+    gid_t gid;
+    const char *group = GROUPGLOBAL;
 #ifdef ENABLE_AUDIT
     audit_thread_active = 0;
+    whodata_alerts = 0;
 #endif
 
     /* Set the name */
@@ -265,6 +300,17 @@ int main(int argc, char **argv)
         }
     }
 
+    /* Check if the group given is valid */
+    gid = Privsep_GetGroup(group);
+    if (gid == (gid_t) - 1) {
+        merror_exit(USER_ERROR, "", group);
+    }
+
+    /* Privilege separation */
+    if (Privsep_SetGroup(gid) < 0) {
+        merror_exit(SETGID_ERROR, group, errno, strerror(errno));
+    }
+
     /* Read internal options */
     read_internal(debug_level);
 
@@ -283,7 +329,7 @@ int main(int argc, char **argv)
             if (!test_config) {
                 minfo(SK_NO_DIR);
             }
-            dump_syscheck_entry(&syscheck, "", 0, 0, NULL, 0, NULL);
+            dump_syscheck_entry(&syscheck, "", 0, 0, NULL, 0, NULL, -1);
         } else if (!syscheck.dir[0]) {
             if (!test_config) {
                 minfo(SK_NO_DIR);
@@ -328,6 +374,9 @@ int main(int argc, char **argv)
     /* Start signal handling */
     StartSIG(ARGV0);
 
+    // Start com request thread
+    w_create_thread(syscom_main, NULL);
+
     /* Create pid */
     if (CreatePID(ARGV0, getpid()) < 0) {
         merror_exit(PID_ERROR);
@@ -342,12 +391,12 @@ int main(int argc, char **argv)
 
     /* Connect to the queue */
     if ((syscheck.queue = StartMQ(DEFAULTQPATH, WRITE)) < 0) {
-        merror(QUEUE_ERROR, DEFAULTQPATH, strerror(errno));
+        minfo("Cannot connect to queue '%s' (%d)'%s'. Waiting 5 seconds to reconnect.", DEFAULTQPATH, errno, strerror(errno));
 
         sleep(5);
         if ((syscheck.queue = StartMQ(DEFAULTQPATH, WRITE)) < 0) {
             /* more 10 seconds of wait */
-            merror(QUEUE_ERROR, DEFAULTQPATH, strerror(errno));
+            minfo("Cannot connect to queue '%s' (%d)'%s'. Waiting 10 seconds to reconnect.", DEFAULTQPATH, errno, strerror(errno));
             sleep(10);
             if ((syscheck.queue = StartMQ(DEFAULTQPATH, WRITE)) < 0) {
                 merror_exit(QUEUE_FATAL, DEFAULTQPATH);
@@ -365,7 +414,7 @@ int main(int argc, char **argv)
         while (syscheck.dir[r] != NULL) {
             char optstr[ 1024 ];
             minfo("Monitoring directory: '%s', with options %s.", syscheck.dir[r], syscheck_opts2str(optstr, sizeof( optstr ), syscheck.opts[r]));
-            if (syscheck.tag[r] != NULL)
+            if (syscheck.tag && syscheck.tag[r] != NULL)
                 mdebug1("Adding tag '%s' to directory '%s'.", syscheck.tag[r], syscheck.dir[r]);
             r++;
         }
@@ -374,6 +423,11 @@ int main(int argc, char **argv)
         if(syscheck.ignore)
             for (r = 0; syscheck.ignore[r] != NULL; r++)
                 minfo("Ignoring: '%s'", syscheck.ignore[r]);
+
+        /* Print sregex ignores. */
+        if(syscheck.ignore_regex)
+            for (r = 0; syscheck.ignore_regex[r] != NULL; r++)
+                minfo("Ignoring sregex: '%s'", syscheck.ignore_regex[r]->raw);
 
         /* Print files with no diff. */
         if (syscheck.nodiff){
@@ -421,6 +475,7 @@ int main(int argc, char **argv)
 
     /* Start the daemon */
     start_daemon();
+
 }
 
 #endif /* !WIN32 */

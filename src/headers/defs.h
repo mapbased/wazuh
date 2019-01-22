@@ -1,4 +1,5 @@
-/* Copyright (C) 2009-2012 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009-2012 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -24,6 +25,7 @@
 /* Size limit control */
 #define OS_SIZE_65536   65536
 #define OS_SIZE_61440   61440
+#define OS_SIZE_20480   20480
 #define OS_SIZE_8192    8192
 #define OS_SIZE_6144    6144
 #define OS_SIZE_4096    4096
@@ -54,10 +56,11 @@
 #define SOCK_RECV_TIME0 300             /* Socket receiving timeout (s) */
 #define MIN_ORDER_SIZE  10              /* Minimum size of orders array */
 #define KEEPALIVE_SIZE  700             /* Random keepalive string size */
+#define MAX_DYN_STR     4194304         /* Max message size received 4MiB */
 
 /* Some global names */
 #define __ossec_name    "Wazuh"
-#define __ossec_version "v3.6.2"
+#define __ossec_version "v3.8.0"
 #define __author        "Wazuh Inc."
 #define __contact       "info@wazuh.com"
 #define __site          "http://www.wazuh.com"
@@ -119,12 +122,23 @@ https://www.gnu.org/licenses/gpl.html\n"
 
 // Authd local socket
 #define AUTH_LOCAL_SOCK "/queue/ossec/auth"
+#define AUTH_LOCAL_SOCK_PATH DEFAULTDIR AUTH_LOCAL_SOCK
 
 // Remote requests socket
 #define REMOTE_REQ_SOCK "/queue/ossec/request"
 
 // Local requests socket
 #define COM_LOCAL_SOCK  "/queue/ossec/com"
+#define LC_LOCAL_SOCK  "/queue/ossec/logcollector"
+#define SYS_LOCAL_SOCK  "/queue/ossec/syscheck"
+#define WM_LOCAL_SOCK  "/queue/ossec/wmodules"
+#define ANLSYS_LOCAL_SOCK  "/queue/ossec/analysis"
+#define MAIL_LOCAL_SOCK "/queue/ossec/mail"
+#define LESSD_LOCAL_SOCK "/queue/ossec/agentless"
+#define INTG_LOCAL_SOCK "/queue/ossec/integrator"
+#define CSYS_LOCAL_SOCK  "/queue/ossec/csyslog"
+#define MON_LOCAL_SOCK  "/queue/ossec/monitor"
+#define CLUSTER_SOCK "/queue/cluster/c-internal.sock"
 
 // Database socket
 #define WDB_LOCAL_SOCK "/queue/db/wdb"
@@ -134,6 +148,9 @@ https://www.gnu.org/licenses/gpl.html\n"
 
 #define WM_DOWNLOAD_SOCK "/queue/ossec/download"
 #define WM_DOWNLOAD_SOCK_PATH DEFAULTDIR WM_DOWNLOAD_SOCK
+
+#define WM_KEY_REQUEST_SOCK "/queue/ossec/krequest"
+#define WM_KEY_REQUEST_SOCK_PATH DEFAULTDIR WM_KEY_REQUEST_SOCK
 
 /* Active Response files */
 #define DEFAULTAR_FILE  "ar.conf"
@@ -159,11 +176,11 @@ https://www.gnu.org/licenses/gpl.html\n"
 #define ARQUEUE         "/queue/alerts/ar"
 
 /* Decoder file */
-#define XML_DECODER     "/etc/decoder.xml"
-#define XML_LDECODER    "/etc/local_decoder.xml"
+#define XML_LDECODER    "/etc/decoders/local_decoder.xml"
 
 /* Agent information location */
 #define AGENTINFO_DIR    "/queue/agent-info"
+#define AGENTINFO_DIR_PATH DEFAULTDIR "/queue/agent-info"
 
 /* Agent groups location */
 #define GROUPS_DIR    "/queue/agent-groups"
@@ -195,6 +212,7 @@ https://www.gnu.org/licenses/gpl.html\n"
 #endif
 #define DIFF_NEW_FILE  "new-entry"
 #define DIFF_LAST_FILE "last-entry"
+#define DIFF_GZ_FILE "last-entry.gz"
 #define DIFF_TEST_HOST "__test"
 
 /* Syscheck data */
@@ -291,6 +309,12 @@ https://www.gnu.org/licenses/gpl.html\n"
 #else
 #define SHAREDCFG_DIR   "shared"
 #endif
+
+/* Multi-groups directory */
+#define MULTIGROUPS_DIR   "/var/multigroups"
+#define MAX_GROUP_NAME 255
+#define MULTIGROUP_SEPARATOR ','
+#define MAX_GROUPS_PER_MULTIGROUP 256
 
 // Incoming directory
 #ifndef WIN32
@@ -408,5 +432,7 @@ https://www.gnu.org/licenses/gpl.html\n"
 #ifndef xml_ar
 #define xml_ar      "active-response"
 #endif
+
+#define CLOCK_LENGTH 256
 
 #endif /* __OS_HEADERS */

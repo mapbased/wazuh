@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -72,6 +73,7 @@ int Read_Localfile(XML_NODE node, void *d1, __attribute__((unused)) void *d2)
     memset(logf + pl, 0, sizeof(logreader));
     //os_calloc(1, sizeof(wlabel_t), logf[pl].labels);
     logf[pl].ign = 360;
+    logf[pl].exists = 1;
 
     /* Search for entries related to files */
     i = 0;
@@ -469,11 +471,16 @@ int Remove_Localfile(logreader **logf, int i, int gl, int fr) {
             if (i != size -1) {
                 memcpy(&(*logf)[i], &(*logf)[size - 1], sizeof(logreader));
             }
+
             (*logf)[size - 1].file = NULL;
-            (*logf)[size - 1].ffile = NULL;
-            (*logf)[size - 1].command = NULL;
-            (*logf)[size - 1].logformat = NULL;
             (*logf)[size - 1].fp = NULL;
+
+            if(!gl) {
+                (*logf)[size - 1].target = NULL;
+                (*logf)[size - 1].ffile = NULL;
+                (*logf)[size - 1].logformat = NULL;
+                (*logf)[size - 1].command = NULL;
+            }
 
             if (!size)
                 size = 1;

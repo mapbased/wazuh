@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -143,6 +144,10 @@ alert_data *Read_FileMon(file_queue *fileq, const struct tm *p, unsigned int tim
         }
     }
 
+    if(!fileq->fp){
+        return (NULL);
+    }
+    
     if (al_data = GetAlertData(fileq->flags, fileq->fp), al_data) {
         return al_data;
     }

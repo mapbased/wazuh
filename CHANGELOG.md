@@ -1,24 +1,236 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## [v3.6.2]
+## [v3.8.0]
+
+### Added
+
+- Logcollector **extension for Windows eventchannel logs in JSON format.** ([#2142](https://github.com/wazuh/wazuh/pull/2142))
+- Add options to detect **attribute and file permission changes** for Windows. ([#1918](https://github.com/wazuh/wazuh/pull/1918))
+- Added **Audit health-check** in the Whodata initialization. ([#2180](https://github.com/wazuh/wazuh/pull/2180))
+- Added **Audit rules auto-reload** in Whodata. ([#2180](https://github.com/wazuh/wazuh/pull/2180))
+- Support for **new AWS services** in the AWS wodle ([#2242](https://github.com/wazuh/wazuh/pull/2242)):
+    - AWS Config
+    - AWS Trusted Advisor
+    - AWS KMS
+    - AWS Inspector
+    - Add support for IAM roles authentication in EC2 instances.
+- New module "Agent Key Polling" to integrate agent key request to external data sources. ([#2127](https://github.com/wazuh/wazuh/pull/2127))
+  - Look for missing or old agent keys when Remoted detects an authorization failure.
+  - Request agent keys by calling a defined executable or connecting to a local socket.
+- Get process inventory for Windows natively. ([#1760](https://github.com/wazuh/wazuh/pull/1760))
+- Improved vulnerability detection in Red Hat systems. ([#2137](https://github.com/wazuh/wazuh/pull/2137))
+- Add retries to download the OVAL files in vulnerability-detector. ([#1832](https://github.com/wazuh/wazuh/pull/1832))
+- Auto-upgrade FIM databases in Wazuh-DB. ([#2147](https://github.com/wazuh/wazuh/pull/2147))
+- New dedicated thread for AR command running on Windows agent. ([#1725](https://github.com/wazuh/wazuh/pull/1725))
+  -  This will prevent the agent from delaying due to an AR execution.
+- New internal option to clean residual files of agent groups. ([#1985](https://github.com/wazuh/wazuh/pull/1985))
+- Add a manifest to run `agent-auth.exe` with elevated privileges. ([#1998](https://github.com/wazuh/wazuh/pull/1998))
+- Compress `last-entry` files to check differences by FIM. ([#2034](https://github.com/wazuh/wazuh/pull/2034))
+- Add error messages to integration scripts. ([#2143](https://github.com/wazuh/wazuh/pull/2143))
+- Add CDB lists building on install. ([#2167](https://github.com/wazuh/wazuh/pull/2167))
+- Update Wazuh copyright for internal files. ([#2343](https://github.com/wazuh/wazuh/pull/2343))
+- Added option to allow maild select the log file to read from. ([#977](https://github.com/wazuh/wazuh/pull/977))
+- Add table to control the metadata of the vuln-detector DB. ([#2402](https://github.com/wazuh/wazuh/pull/2402))
 
 ### Changed
 
-- Make Syscheck case insensitive. ([#1349](https://github.com/wazuh/wazuh/pull/1349))
+- Now Wazuh manager can be started with an empty configuration in ossec.conf. ([#2086](https://github.com/wazuh/wazuh/pull/2086))
+- The Authentication daemon is now enabled by default. ([#2129](https://github.com/wazuh/wazuh/pull/2129))
+- Make FIM show alerts for new files by default. ([#2213](https://github.com/wazuh/wazuh/pull/2213))
+- Reduce the length of the query results from Vulnerability Detector to Wazuh DB. ([#1798](https://github.com/wazuh/wazuh/pull/1798))
+- Improved the build system to automatically detect a big-endian platform. ([#2031](https://github.com/wazuh/wazuh/pull/2031))
+  - Building option `USE_BIG_ENDIAN` is not already needed on Solaris (SPARC) or HP-UX.
+- Expanded the regex pattern maximum size from 2048 to 20480 bytes. ([#2036](https://github.com/wazuh/wazuh/pull/2036))
+- Improved IP address validation in the option `<white_list>` (by @pillarsdotnet). ([#1497](https://github.com/wazuh/wazuh/pull/1497))
+- Improved rule option `<info>` validation (by @pillarsdotnet). ([#1541](https://github.com/wazuh/wazuh/pull/1541))
+- Deprecated the Syscheck option `<remove_old_diff>` by making it mandatory. ([#1915](https://github.com/wazuh/wazuh/pull/1915))
+- Fix invalid error "Unable to verity server certificate" in _ossec-authd_ (server). ([#2045](https://github.com/wazuh/wazuh/pull/2045))
+- Remove deprecated flag `REUSE_ID` from the Makefile options. ([#2107](https://github.com/wazuh/wazuh/pull/2107))
+- Syscheck first queue error message changed into a warning. ([#2146](https://github.com/wazuh/wazuh/pull/2146))
+- Do the DEB and RPM package scan regardless of Linux distribution. ([#2168](https://github.com/wazuh/wazuh/pull/2168))
+- AWS VPC configuration in the AWS wodle ([#2242](https://github.com/wazuh/wazuh/pull/2242)).
+- Hide warning log by FIM when cannot open a file that has just been removed. ([#2201](https://github.com/wazuh/wazuh/pull/2201))
+- The default FIM configuration will ignore some temporary files. ([#2202](https://github.com/wazuh/wazuh/pull/2202))
 
 ### Fixed
 
+- Fixed error description in the osquery configuration parser (by @pillarsdotnet). ([#1499](https://github.com/wazuh/wazuh/pull/1499))
+- The FTS comment option `<ftscomment>` was not being read (by @pillarsdotnet). ([#1536](https://github.com/wazuh/wazuh/pull/1536))
+- Fixed error when multigroup files are not found. ([#1792](https://github.com/wazuh/wazuh/pull/1792))
+- Fix error when assigning multiple groups whose names add up to more than 4096 characters. ([#1792](https://github.com/wazuh/wazuh/pull/1792))
+- Replaced "getline" function with "fgets" in vulnerability-detector to avoid compilation errors with older versions of libC. ([#1822](https://github.com/wazuh/wazuh/pull/1822))
+- Fix bug in Wazuh DB when trying to store multiple network interfaces with the same IP from Syscollector. ([#1928](https://github.com/wazuh/wazuh/pull/1928))
+- Improved consistency of multigroups. ([#1985](https://github.com/wazuh/wazuh/pull/1985))
+- Fixed the reading of the OS name and version in HP-UX systems. ([#1990](https://github.com/wazuh/wazuh/pull/1990))
+- Prevent the agent from producing an error on platforms that don't support network timeout. ([#2001](https://github.com/wazuh/wazuh/pull/2001))
+- Logcollector could not set the maximum file limit on HP-UX platform. ([2030](https://github.com/wazuh/wazuh/pull/2030))
+- Allow strings up to 64KB long for log difference analysis. ([#2032](https://github.com/wazuh/wazuh/pull/2032))
+- Now agents keep their registration date when upgrading the manager. ([#2033](https://github.com/wazuh/wazuh/pull/2033))
+- Create an empty `client.keys` file on a fresh installation of a Windows agent. ([2040](https://github.com/wazuh/wazuh/pull/2040))
+- Allow CDB list keys and values to have double quotes surrounding. ([#2046](https://github.com/wazuh/wazuh/pull/2046))
+- Remove file `queue/db/.template.db` on upgrade / restart. ([2073](https://github.com/wazuh/wazuh/pull/2073))
+- Fix error on Analysisd when `check_value` doesn't exist. ([2080](https://github.com/wazuh/wazuh/pull/2080))
+- Prevent Rootcheck from looking for invalid link count in agents running on Solaris (by @ecsc-georgew). ([2087](https://github.com/wazuh/wazuh/pull/2087))
+- Fixed the warning messages when compiling the agent on AIX. ([2099](https://github.com/wazuh/wazuh/pull/2099))
+- Fix missing library when building Wazuh with MySQL support. ([#2108](https://github.com/wazuh/wazuh/pull/2108))
+- Fix compile warnings for the Solaris platform. ([#2121](https://github.com/wazuh/wazuh/pull/2121))
+- Fixed regular expression for audit.key in audit decoder. ([#2134](https://github.com/wazuh/wazuh/pull/2134))
+- Agent's ossec-control stop should wait a bit after killing a process. ([#2149](https://github.com/wazuh/wazuh/pull/2149))
+- Fixed error ocurred while monitoring symbolic links in Linux. ([#2152](https://github.com/wazuh/wazuh/pull/2152))
+- Fixed some bugs in Logcollector: ([#2154](https://github.com/wazuh/wazuh/pull/2154))
+  - If Logcollector picks up a log exceeding 65279 bytes, that log may lose the null-termination.
+  - Logcollector crashes if multiple wildcard stanzas resolve the same file.
+  - An error getting the internal file position may lead to an undefined condition.
+- Execd daemon now runs even if active response is disabled ([#2177](https://github.com/wazuh/wazuh/pull/2177))
+- Fix high precision timestamp truncation in rsyslog messages. ([#2128](https://github.com/wazuh/wazuh/pull/2128))
+- Fix missing Whodata section to the remote configuration query. ([#2173](https://github.com/wazuh/wazuh/pull/2173))
+- Bugfixes in AWS wodle ([#2242](https://github.com/wazuh/wazuh/pull/2242)):
+    - Fixed bug in AWS Guard Duty alerts when there were multiple remote IPs.
+    - Fixed bug when using flag `remove_from_bucket`.
+    - Fixed bug when reading buckets generating more than 1000 logs in the same day.
+    - Increase `qty` of `aws.eventNames` and remove usage of `aws.eventSources`.
+- Fix bug in cluster configuration when using Kubernetes ([#2227](https://github.com/wazuh/wazuh/pull/2227)).
+- Fix network timeout setup in agent running on Windows. ([#2185](https://github.com/wazuh/wazuh/pull/2185))
+- Fix default values for the `<auto_ignore>` option. ([#2210](https://github.com/wazuh/wazuh/pull/2210))
+- Fix bug that made Modulesd and Remoted crash on ARM architecture. ([#2214](https://github.com/wazuh/wazuh/pull/2214))
+- The regex parser included the next character after a group:
+  - If the input string just ends after that character. ([#2216](https://github.com/wazuh/wazuh/pull/2216))
+  - The regex parser did not accept a group terminated with an escaped byte or a class. ([#2224](https://github.com/wazuh/wazuh/pull/2224))
+- Fixed buffer overflow hazard in FIM when performing change report on long paths on macOS platform. ([#2285](https://github.com/wazuh/wazuh/pull/2285))
+- Fix sending of the owner attribute when a file is created in Windows. ([#2292](https://github.com/wazuh/wazuh/pull/2292))
+- Fix audit reconnection to the Whodata socket ([#2305](https://github.com/wazu2305h/wazuh/pull/2305))
+- Fixed agent connection in TCP mode on Windows XP. ([#2329](https://github.com/wazuh/wazuh/pull/2329))
+- Fix log shown when a command reaches its timeout and `ignore_output` is enabled. ([#2316](https://github.com/wazuh/wazuh/pull/2316))
+- Analysisd and Syscollector did not detect the number of cores on Raspberry Pi. ([#2304](https://github.com/wazuh/wazuh/pull/2304))
+- Analysisd and Syscollector did not detect the number of cores on CentOS 5. ([#2340](https://github.com/wazuh/wazuh/pull/2340))
+
+## [v3.7.2] 2018-12-17
+
+### Changed
+
+- Logcollector will fully read a log file if it reappears after being deleted. ([#2041](https://github.com/wazuh/wazuh/pull/2041))
+
+### Fixed
+
+- Fix some bugs in Logcollector: ([#2041](https://github.com/wazuh/wazuh/pull/2041))
+  - Logcollector ceases monitoring any log file containing a binary zero-byte.
+  - If a local file defined with wildcards disappears, Logcollector incorrectly shows a negative number of remaining open attempts.
+  - Fixed end-of-file detection for text-based file formats.
+- Fixed a bug in Analysisd that made it crash when decoding a malformed FIM message. ([#2089](https://github.com/wazuh/wazuh/pull/2089))
+
+
+## [v3.7.1] 2018-12-05
+
+### Added
+
+- New internal option `remoted.guess_agent_group` allowing agent group guessing by Remoted to be optional. ([#1890](https://github.com/wazuh/wazuh/pull/1890))
+- Added option to configure another audit keys to monitor. ([#1882](https://github.com/wazuh/wazuh/pull/1882))
+- Added option to create the SSL certificate and key with the install.sh script. ([#1856](https://github.com/wazuh/wazuh/pull/1856))
+- Add IPv6 support to `host-deny.sh` script. (by @iasdeoupxe). ([#1583](https://github.com/wazuh/wazuh/pull/1583))
+- Added tracing information (PID, function, file and line number) to logs when debugging is enabled. ([#1866](https://github.com/wazuh/wazuh/pull/1866))
+
+### Changed
+
+- Change errors messages to descriptive warnings in Syscheck when a files is not reachable. ([#1730](https://github.com/wazuh/wazuh/pull/1730))
+- Add default values to global options to let the manager start. ([#1894](https://github.com/wazuh/wazuh/pull/1894))
+- Improve Remoted performance by reducing interaction between threads. ([#1902](https://github.com/wazuh/wazuh/pull/1902))
+
+### Fixed
+
+- Prevent duplicates entries for denied IP addresses by `host-deny.sh`. (by @iasdeoupxe). ([#1583](https://github.com/wazuh/wazuh/pull/1583))
+- Fix issue in Logcollector when reaching the file end before getting a full line. ([#1744](https://github.com/wazuh/wazuh/pull/1744))
+- Throw an error when a nonexistent CDB file is added in the ossec.conf file. ([#1783](https://github.com/wazuh/wazuh/pull/1783))
+- Fix bug in Remoted that truncated control messages to 1024 bytes. ([#1847](https://github.com/wazuh/wazuh/pull/1847))
+- Avoid that the attribute `ignore` of rules silence alerts. ([#1874](https://github.com/wazuh/wazuh/pull/1874))
+- Fix race condition when decoding file permissions. ([#1879](https://github.com/wazuh/wazuh/pull/1879)
+- Fix to overwrite FIM configuration when directories come in the same tag separated by commas. ([#1886](https://github.com/wazuh/wazuh/pull/1886))
+- Fixed issue with hash table handling in FTS and label management. ([#1889](https://github.com/wazuh/wazuh/pull/1889))
+- Fixed id's and description of FIM alerts. ([#1891](https://github.com/wazuh/wazuh/pull/1891))
+- Fix log flooding by Logcollector when monitored files disappear. ([#1893](https://github.com/wazuh/wazuh/pull/1893))
+- Fix bug configuring empty blocks in FIM. ([#1897](https://github.com/wazuh/wazuh/pull/1897))
+- Let the Windows agent reset the random generator context if it's corrupt. ([#1898](https://github.com/wazuh/wazuh/pull/1898))
+- Prevent Remoted from logging errors if the cluster configuration is missing or invalid. ([#1900](https://github.com/wazuh/wazuh/pull/1900))
+- Fix race condition hazard in Remoted when handling control messages. ([#1902](https://github.com/wazuh/wazuh/pull/1902))
+- Fix uncontrolled condition in the vulnerability-detector version checker. ([#1932](https://github.com/wazuh/wazuh/pull/1932))
+- Restore support for Amazon Linux in vulnerability-detector. ([#1932](https://github.com/wazuh/wazuh/pull/1932))
+- Fixed starting wodles after a delay specified in `interval` when `run_on_start` is set to `no`, on the first run of the agent. ([#1906](https://github.com/wazuh/wazuh/pull/1906))
+- Prevent `agent-auth` tool from creating the file _client.keys_ outside the agent's installation folder. ([#1924](https://github.com/wazuh/wazuh/pull/1924))
+- Fix symbolic links attributes reported by `syscheck` in the alerts. ([#1926](https://github.com/wazuh/wazuh/pull/1926))
+- Added some improvements and fixes in Whodata. ([#1929](https://github.com/wazuh/wazuh/pull/1929))
+- Fix FIM decoder to accept Windows user containing spaces. ([#1930](https://github.com/wazuh/wazuh/pull/1930))
+- Add missing field `restrict` when querying the FIM configuration remotely. ([#1931](https://github.com/wazuh/wazuh/pull/1931))
+- Fix values of FIM scan showed in agent_control info. ([#1940](https://github.com/wazuh/wazuh/pull/1940))
+- Fix agent group updating in database module. ([#2004](https://github.com/wazuh/wazuh/pull/2004))
+- Logcollector prevents vmhgfs from synchronizing the inode. ([#2022](https://github.com/wazuh/wazuh/pull/2022))
+- File descriptor leak that may impact agents running on UNIX platforms. ([#2021](https://github.com/wazuh/wazuh/pull/2021))
+- CIS-CAT events were being processed by a wrong decoder. ([#2014](https://github.com/wazuh/wazuh/pull/2014))
+
+
+## [v3.7.0] - 2018-11-10
+
+### Added
+
+- Adding feature to **remotely query agent configuration on demand.** ([#548](https://github.com/wazuh/wazuh/pull/548))
+- **Boost Analysisd performance with multithreading.** ([#1039](https://github.com/wazuh/wazuh/pull/1039))
+- Adding feature to **let agents belong to multiple groups.** ([#1135](https://github.com/wazuh/wazuh/pull/1135))
+  - API support for multiple groups. ([#1300](https://github.com/wazuh/wazuh/pull/1300) [#1135](https://github.com/wazuh/wazuh/pull/1135))
+- **Boost FIM decoding performance** by storing data into Wazuh DB using SQLite databases. ([#1333](https://github.com/wazuh/wazuh/pull/1333))
+  - FIM database is cleaned after restarting agent 3 times, deleting all entries that left being monitored.
+  - Added script to migrate older Syscheck databases to WazuhDB. ([#1504](https://github.com/wazuh/wazuh/pull/1504)) ([#1333](https://github.com/wazuh/wazuh/pull/1333))
+- Added rule testing output when restarting manager. ([#1196](https://github.com/wazuh/wazuh/pull/1196))
+- New wodle for **Azure environment log and process collection.** ([#1306](https://github.com/wazuh/wazuh/pull/1306))
+- New wodle for **Docker container monitoring.** ([#1368](https://github.com/wazuh/wazuh/pull/1368))
+- Disconnect manager nodes in cluster if no keep alive is received or sent during two minutes. ([#1482](https://github.com/wazuh/wazuh/pull/1482))
+- API requests are forwarded to the proper manager node in cluster. ([#885](https://github.com/wazuh/wazuh/pull/885))
+- Centralized configuration pushed from manager overwrite the configuration of directories that exist with the same path in ossec.conf. ([#1740](https://github.com/wazuh/wazuh/pull/1740))
+
+### Changed
+
+- Refactor Python framework code to standardize database requests and support queries. ([#921](https://github.com/wazuh/wazuh/pull/921))
+- Replaced the `execvpe` function by `execvp` for the Wazuh modules. ([#1207](https://github.com/wazuh/wazuh/pull/1207))
+- Avoid the use of reference ID in Syscollector network tables. ([#1315](https://github.com/wazuh/wazuh/pull/1315))
+- Make Syscheck case insensitive on Windows agent. ([#1349](https://github.com/wazuh/wazuh/pull/1349))
+- Avoid conflicts with the size of time_t variable in wazuh-db. ([#1366](https://github.com/wazuh/wazuh/pull/1366))
+- Osquery integration updated: ([#1369](https://github.com/wazuh/wazuh/pull/1369))
+  - Nest the result data into a "osquery" object.
+  - Extract the pack name into a new field.
+  - Include the query name in the alert description.
+  - Minor fixes.
+- Increased AWS S3 database entry limit to 5000 to prevent reprocessing repeated events. ([#1391](https://github.com/wazuh/wazuh/pull/1391))
+- Increased the limit of concurrent agent requests: 1024 by default, configurable up to 4096. ([#1473](https://github.com/wazuh/wazuh/pull/1473))
+- Change the default vulnerability-detector interval from 1 to 5 minutes. ([#1729](https://github.com/wazuh/wazuh/pull/1729))
+- Port the UNIX version of Auth client (_agent_auth_) to the Windows agent. ([#1790](https://github.com/wazuh/wazuh/pull/1790))
+  - Support of TLSv1.2 through embedded OpenSSL library.
+  - Support of SSL certificates for agent and manager validation.
+  - Unify Auth client option set.
+
+### Fixed
+
+- Fixed email_alerts configuration for multiple recipients. ([#1193](https://github.com/wazuh/wazuh/pull/1193))
+- Fixed manager stopping when no command timeout is allowed. ([#1194](https://github.com/wazuh/wazuh/pull/1194))
+- Fixed getting RAM memory information from mac OS X and FreeBSD agents. ([#1203](https://github.com/wazuh/wazuh/pull/1203))
+- Fixed mandatory configuration labels check. ([#1208](https://github.com/wazuh/wazuh/pull/1208))
 - Fix 0 value at check options from Syscheck. ([1209](https://github.com/wazuh/wazuh/pull/1209))
+- Fix bug in whodata field extraction for Windows. ([#1233](https://github.com/wazuh/wazuh/issues/1233))
+- Fix stack overflow when monitoring deep files. ([#1239](https://github.com/wazuh/wazuh/pull/1239))
+- Fix typo in whodata alerts. ([#1242](https://github.com/wazuh/wazuh/issues/1242))
+- Fix bug when running quick commands with timeout of 1 second. ([#1259](https://github.com/wazuh/wazuh/pull/1259))
 - Prevent offline agents from generating vulnerability-detector alerts. ([#1292](https://github.com/wazuh/wazuh/pull/1292))
 - Fix empty SHA256 of rotated alerts and log files. ([#1308](https://github.com/wazuh/wazuh/pull/1308))
-- Fix typo in whodata alerts. ([#1242](https://github.com/wazuh/wazuh/issues/1242))
-- Fix bug in whodata field extraction for Windows. ([#1233](https://github.com/wazuh/wazuh/issues/1233))
 - Fixed service startup on error. ([#1324](https://github.com/wazuh/wazuh/pull/1324))
-- Fix stack overflow when monitoring deep files. ([#1239](https://github.com/wazuh/wazuh/pull/1239))
-- Fix bug when running quick commands with timeout of 1 second. ([#1259](https://github.com/wazuh/wazuh/pull/1259))
-- Fixed getting RAM memory information from mac OS X and FreeBSD agents. ([#1203](https://github.com/wazuh/wazuh/pull/1203))
 - Set connection timeout for Auth server ([#1336](https://github.com/wazuh/wazuh/pull/1336))
+- Fix the cleaning of the temporary folder. ([#1361](https://github.com/wazuh/wazuh/pull/1361))
+- Fix check_mtime and check_inode views in Syscheck alerts. ([#1364](https://github.com/wazuh/wazuh/pull/1364))
+- Fixed the reading of the destination address and type for PPP interfaces. ([#1405](https://github.com/wazuh/wazuh/pull/1405))
+- Fixed a memory bug in regex when getting empty strings. ([#1430](https://github.com/wazuh/wazuh/pull/1430))
+- Fixed report_changes with a big ammount of files. ([#1465](https://github.com/wazuh/wazuh/pull/1465))
+- Prevent Logcollector from null-terminating socket output messages. ([#1547](https://github.com/wazuh/wazuh/pull/1547))
+- Fix timeout overtaken message using infinite timeout. ([#1604](https://github.com/wazuh/wazuh/pull/1604))
+- Prevent service from crashing if _global.db_ is not created. ([#1485](https://github.com/wazuh/wazuh/pull/1485))
+- Set new agent.conf template when creating new groups. ([#1647](https://github.com/wazuh/wazuh/pull/1647))
+- Fix bug in Wazuh Modules that tried to delete PID folders if a subprocess call failed. ([#1836](https://github.com/wazuh/wazuh/pull/1836))
+
 
 ## [v3.6.1] 2018-09-07
 
@@ -38,7 +250,7 @@ All notable changes to this project will be documented in this file.
 - Fix bug when launching osquery from Wazuh. ([#1230](https://github.com/wazuh/wazuh/issues/1230))
 
 
-## [v3.6.0] 2018-08-29
+## [v3.6.0] - 2018-08-29
 
 ### Added
 
@@ -87,6 +299,7 @@ All notable changes to this project will be documented in this file.
 - Prevents some vulnerabilities from not being checked for Debian. ([#1166](https://github.com/wazuh/wazuh/pull/1166))
 - Fixed legacy configuration for `vulnerability-detector`. ([#1174](https://github.com/wazuh/wazuh/pull/1174))
 - Fix active-response scripts installation for Windows. ([#1182](https://github.com/wazuh/wazuh/pull/1182)).
+- Fixed `open-scap` deadlock when opening large files. ([#1206](https://github.com/wazuh/wazuh/pull/1206)). Thanks to @juergenc for detecting this issue.
 
 
 ### Removed
@@ -385,7 +598,7 @@ All notable changes to this project will be documented in this file.
 - Updated Slack integration. ([#443](https://github.com/wazuh/wazuh/pull/443))
 - Increased connection timeout for remote upgrades. ([#480](https://github.com/wazuh/wazuh/pull/480))
 - Vulnerability-detector does not stop agents detection if it fails to find the software for one of them.
-- Improve the version comparator algorithm in vulnerability-detector. ([#508](https://github.com/wazuh/wazuh/pull/508/files))
+- Improve the version comparator algorithm in vulnerability-detector. ([#508](https://github.com/wazuh/wazuh/pull/508))
 
 ### Fixed
 

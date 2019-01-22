@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -254,10 +255,8 @@ int ReadActiveResponses(XML_NODE node, void *d1, void *d2)
     /* Check if timeout is allowed */
     if (tmp_ar->timeout && !tmp_ar->ar_cmd->timeout_allowed) {
         mdebug1("Timeout is not allowed");
-        merror(AR_NO_TIMEOUT, tmp_ar->ar_cmd->name);
-        fclose(fp);
-        free(tmp_ar);
-        return (-1);
+        minfo(AR_NO_TIMEOUT, tmp_ar->ar_cmd->name);
+        tmp_ar->timeout = 0;
     }
 
     /* d1 is the active response list */

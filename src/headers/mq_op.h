@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -19,6 +20,7 @@
 #define SECURE_MQ       '4'
 #define SYSCHECK_MQ     '8'
 #define ROOTCHECK_MQ    '9'
+#define EVENT_MQ        '10'
 
 
 /* Queues for additional log types */
@@ -27,6 +29,9 @@
 #define AUTH_MQ          'c'
 #define SYSCOLLECTOR_MQ  'd'
 #define CISCAT_MQ        'e'
+#define WIN_EVT_MQ       'f'
+
+#define MAX_OPENQ_ATTEMPS 15
 
 extern int sock_fail_time;
 

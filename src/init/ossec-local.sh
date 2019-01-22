@@ -1,4 +1,6 @@
 #!/bin/sh
+
+# Copyright (C) 2015-2019, Wazuh Inc.
 # ossec-control        This shell script takes care of starting
 #                      or stopping ossec-hids
 # Author: Daniel B. Cid <daniel.cid@gmail.com>
@@ -204,9 +206,10 @@ testconfig()
 
 start()
 {
-    echo "Starting $NAME $VERSION (maintained by $AUTHOR)..."
-    echo | ${DIR}/bin/ossec-logtest > /dev/null 2>&1;
-    if [ ! $? = 0 ]; then
+    echo "Starting $NAME $VERSION..."
+    TEST=$(${DIR}/bin/ossec-logtest -t  2>&1)
+    echo $TEST
+    if [ ! -z "$TEST" ]; then
         echo "ossec-analysisd: Configuration error. Exiting."
         exit 1;
     fi
@@ -215,7 +218,7 @@ start()
 
     # Delete all files in temporary folder
     TO_DELETE="$DIR/tmp/*"
-    rm -f $TO_DELETE
+    rm -rf $TO_DELETE
 
 
     # We actually start them now.
@@ -286,7 +289,9 @@ wait_pid() {
         then
             return 1
         else
-            sleep 0.1
+            # sleep doesn't work in AIX
+            # read doesn't work in FreeBSD
+            sleep 0.1 > /dev/null 2>&1 || read -t 0.1 > /dev/null 2>&1
             i=`expr $i + 1`
         fi
     done
@@ -324,6 +329,11 @@ stopa()
     echo "$NAME $VERSION Stopped"
 }
 
+buildCDB()
+{
+    ${DIR}/bin/ossec-makelists > /dev/null 2>&1
+}
+
 ### MAIN HERE ###
 
 case "$1" in
@@ -342,6 +352,7 @@ restart)
     testconfig
     lock
     stopa
+    buildCDB
     start
     unlock
     ;;

@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -28,7 +29,7 @@ time_t __win32_shared_time = 0;
 const char *__win32_uname = NULL;
 char *__win32_shared = NULL;
 HANDLE hMutex;
-
+int win_debug_level;
 
 /** Prototypes **/
 int Start_win32_Syscheck();
@@ -126,6 +127,7 @@ int local_start()
     WSADATA wsaData;
     DWORD  threadID;
     DWORD  threadID2;
+    win_debug_level = getDefine_Int("windows", "debug", 0, 2);
 
     /* Start agent */
     agt = (agent *)calloc(1, sizeof(agent));
@@ -134,7 +136,7 @@ int local_start()
     }
 
     /* Get debug level */
-    debug_level = getDefine_Int("windows", "debug", 0, 2);
+    debug_level = win_debug_level;
     while (debug_level != 0) {
         nowDebug();
         debug_level--;

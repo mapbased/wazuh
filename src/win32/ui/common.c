@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -40,7 +41,7 @@ int gen_server_info(HWND hwnd)
     SetDlgItemText(hwnd, UI_SERVER_TEXT, config_inst.server);
 
     /* Set status data */
-    SendMessage(hStatus, SB_SETTEXT, 0, (LPARAM)"http://wazuh.com");
+    SendMessage(hStatus, SB_SETTEXT, 0, (LPARAM)"https://wazuh.com");
     if (config_inst.revision) {
         SendMessage(hStatus, SB_SETTEXT, 1, (LPARAM)config_inst.revision);
     }

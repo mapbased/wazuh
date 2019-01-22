@@ -1,6 +1,6 @@
 /*
  * Wazuh Integration with Osquery
- * Copyright (C) 2018 Wazuh Inc.
+ * Copyright (C) 2015-2019, Wazuh Inc.
  * April 5, 2018.
  *
  * This program is a free software; you can redistribute it
@@ -25,25 +25,33 @@
 #define OSQUERYD_BIN "osqueryd"
 #endif
 
-#define minfo(format, ...) mtinfo(WM_OSQUERYMONITOR_LOGTAG, format, ##__VA_ARGS__)
-#define mwarn(format, ...) mtwarn(WM_OSQUERYMONITOR_LOGTAG, format, ##__VA_ARGS__)
-#define merror(format, ...) mterror(WM_OSQUERYMONITOR_LOGTAG, format, ##__VA_ARGS__)
-#define mdebug1(format, ...) mtdebug1(WM_OSQUERYMONITOR_LOGTAG, format, ##__VA_ARGS__)
-#define mdebug2(format, ...) mtdebug2(WM_OSQUERYMONITOR_LOGTAG, format, ##__VA_ARGS__)
+#undef minfo
+#undef mwarn
+#undef merror
+#undef mdebug1
+#undef mdebug2
+
+#define minfo(msg, ...) _mtinfo(WM_OSQUERYMONITOR_LOGTAG, __FILE__, __LINE__, __func__, msg, ##__VA_ARGS__)
+#define mwarn(msg, ...) _mtwarn(WM_OSQUERYMONITOR_LOGTAG, __FILE__, __LINE__, __func__, msg, ##__VA_ARGS__)
+#define merror(msg, ...) _mterror(WM_OSQUERYMONITOR_LOGTAG, __FILE__, __LINE__, __func__, msg, ##__VA_ARGS__)
+#define mdebug1(msg, ...) _mtdebug1(WM_OSQUERYMONITOR_LOGTAG, __FILE__, __LINE__, __func__, msg, ##__VA_ARGS__)
+#define mdebug2(msg, ...) _mtdebug2(WM_OSQUERYMONITOR_LOGTAG, __FILE__, __LINE__, __func__, msg, ##__VA_ARGS__)
 
 static void *wm_osquery_monitor_main(wm_osquery_monitor_t *osquery_monitor);
 static void wm_osquery_monitor_destroy(wm_osquery_monitor_t *osquery_monitor);
 static int wm_osquery_check_logfile(const char * path, FILE * fp);
 static int wm_osquery_packs(wm_osquery_monitor_t *osquery);
 static char * wm_osquery_already_running(char * text);
+cJSON *wm_osquery_dump(const wm_osquery_monitor_t *osquery_monitor);
 
 static volatile int active = 1;
 
-const wm_context WM_OSQUERYMONITOR_CONTEXT =
-    {
-        "osquery",
-        (wm_routine)wm_osquery_monitor_main,
-        (wm_routine)wm_osquery_monitor_destroy};
+const wm_context WM_OSQUERYMONITOR_CONTEXT = {
+    "osquery",
+    (wm_routine)wm_osquery_monitor_main,
+    (wm_routine)wm_osquery_monitor_destroy,
+    (cJSON * (*)(const void *))wm_osquery_dump
+};
 
 void *Read_Log(wm_osquery_monitor_t * osquery)
 {
@@ -52,19 +60,30 @@ void *Read_Log(wm_osquery_monitor_t * osquery)
     char line[OS_MAXSTR];
     FILE *result_log = NULL;
     char * end;
+    char * payload;
+    cJSON * root;
+    cJSON * name;
+    cJSON * osquery_json;
+    char * begin;
 
     while (active) {
         // Wait to open log file
 
         while (result_log = wfopen(osquery->log_path, "r"), !result_log && active) {
-            mwarn("Results file '%s' not available: %s (%d)", osquery->log_path, strerror(errno), errno);
-            sleep((i < 60 ? ++i : 60));
+            i += i < 60;
+            mwarn("Results file '%s' not available: %s (%d). Retrying in %d sec.", osquery->log_path, strerror(errno), errno, i);
+            sleep(i);
         }
 
         if (!active) {
-            fclose(result_log);
+            if (result_log) {
+                fclose(result_log);
+            }
+
             break;
         }
+
+        minfo("Following osquery results file '%s'.", osquery->log_path);
 
         // Move to end of the file
 
@@ -88,14 +107,55 @@ void *Read_Log(wm_osquery_monitor_t * osquery)
             // Get file until EOF
 
             while (fgets(line, OS_MAXSTR, result_log)) {
+
                 // Remove newline
+
                 if (end = strchr(line, '\n'), end) {
                     *end = '\0';
                 }
 
-                mdebug2("Sending... '%s'", line);
-                if (wm_sendmsg(osquery->msg_delay, osquery->queue_fd, line, "osquery", LOCALFILE_MQ) < 0) {
-                    mterror(WM_OSQUERYMONITOR_LOGTAG, QUEUE_ERROR, DEFAULTQUEUE, strerror(errno));
+                if (osquery_json = cJSON_Parse(line), osquery_json) {
+
+                    // Nest object into a "osquery" object
+
+                    root = cJSON_CreateObject();
+                    cJSON_AddItemToObject(root, "osquery", osquery_json);
+
+                    if (!cJSON_GetObjectItem(osquery_json, "pack")) {
+
+                        // Try to find a name matching "pack_.*_.+"
+
+                        if (name = cJSON_GetObjectItem(osquery_json, "name"), name && cJSON_IsString(name)) {
+                            if (strstr(name->valuestring, "pack_")) {
+                                begin = name->valuestring + 5;
+
+                                if (end = strchr(begin, '_'), end && end[1]) {
+                                    *end = '\0';
+                                    cJSON_AddStringToObject(osquery_json, "pack", begin);
+                                    *end = '_';
+                                    end += 1;
+                                    cJSON_AddStringToObject(osquery_json, "subquery", end);
+                                }
+                            }
+                        }
+                    }
+
+                    payload = cJSON_PrintUnformatted(root);
+                    mdebug2("Sending... '%s'", payload);
+
+                    if (wm_sendmsg(osquery->msg_delay, osquery->queue_fd, payload, "osquery", LOCALFILE_MQ) < 0) {
+                        mterror(WM_OSQUERYMONITOR_LOGTAG, QUEUE_ERROR, DEFAULTQUEUE, strerror(errno));
+                    }
+
+                    free(payload);
+                    cJSON_Delete(root);
+                } else {
+                    static int reported = 0;
+
+                    if (!reported) {
+                        mwarn("Result line not in JSON format: '%64s'...", line);
+                        reported = 1;
+                    }
                 }
             }
 
@@ -366,7 +426,7 @@ int wm_osquery_decorators(wm_osquery_monitor_t * osquery)
 
     // Load original osquery configuration
 
-    if (root = json_fread(osquery->config_path), !root) {
+    if (root = json_fread(osquery->config_path, 1), !root) {
         if (errno) {
             merror("Couldn't load configuration file '%s': %s (%d)", osquery->config_path, strerror(errno), errno);
         } else {
@@ -421,7 +481,7 @@ int wm_osquery_decorators(wm_osquery_monitor_t * osquery)
     // Write new configuration
 
     if (json_fwrite(osquery->config_path, root) < 0) {
-        merror("At %s(): couldn't write JSON content into configuration '%s': %s (%d)", __func__, osquery->config_path, strerror(errno), errno);
+        merror("Couldn't write JSON content into configuration '%s': %s (%d)", osquery->config_path, strerror(errno), errno);
         goto end;
     }
 
@@ -450,7 +510,7 @@ int wm_osquery_packs(wm_osquery_monitor_t *osquery)
 
     // Load original osquery configuration
 
-    if (root = json_fread(osquery->config_path), !root) {
+    if (root = json_fread(osquery->config_path, 1), !root) {
         if (errno) {
             merror("Couldn't load configuration file '%s': %s (%d)", osquery->config_path, strerror(errno), errno);
         } else {
@@ -495,7 +555,7 @@ int wm_osquery_packs(wm_osquery_monitor_t *osquery)
     // Write new configuration
 
     if (json_fwrite(osquery->config_path, root) < 0) {
-        merror("At %s(): couldn't write JSON content into configuration '%s': %s (%d)", __func__, osquery->config_path, strerror(errno), errno);
+        merror("Couldn't write JSON content into configuration '%s': %s (%d)", osquery->config_path, strerror(errno), errno);
         retval = -1;
     }
 
@@ -562,6 +622,7 @@ void *wm_osquery_monitor_main(wm_osquery_monitor_t *osquery)
     return NULL;
 }
 
+
 void wm_osquery_monitor_destroy(wm_osquery_monitor_t *osquery_monitor)
 {
     int i;
@@ -579,4 +640,35 @@ void wm_osquery_monitor_destroy(wm_osquery_monitor_t *osquery_monitor)
 
         free(osquery_monitor);
     }
+}
+
+
+// Get readed data
+cJSON *wm_osquery_dump(const wm_osquery_monitor_t *osquery_monitor) {
+
+    cJSON *root = cJSON_CreateObject();
+    cJSON *wm_osq = cJSON_CreateObject();
+    unsigned int i;
+
+    if (osquery_monitor->disable) cJSON_AddStringToObject(wm_osq,"disabled","yes"); else cJSON_AddStringToObject(wm_osq,"disabled","no");
+    if (osquery_monitor->run_daemon) cJSON_AddStringToObject(wm_osq,"run_daemon","yes"); else cJSON_AddStringToObject(wm_osq,"run_daemon","no");
+    if (osquery_monitor->add_labels) cJSON_AddStringToObject(wm_osq,"add_labels","yes"); else cJSON_AddStringToObject(wm_osq,"add_labels","no");
+    if (osquery_monitor->bin_path) cJSON_AddStringToObject(wm_osq,"bin_path",osquery_monitor->bin_path);
+    if (osquery_monitor->log_path) cJSON_AddStringToObject(wm_osq,"log_path",osquery_monitor->log_path);
+    if (osquery_monitor->config_path) cJSON_AddStringToObject(wm_osq,"config_path",osquery_monitor->config_path);
+
+    if (osquery_monitor->packs && *osquery_monitor->packs) {
+        cJSON *packs = cJSON_CreateArray();
+        for (i=0;osquery_monitor->packs[i] && osquery_monitor->packs[i]->name;i++) {
+            cJSON *pack = cJSON_CreateObject();
+            cJSON_AddStringToObject(pack,"name",osquery_monitor->packs[i]->name);
+            cJSON_AddStringToObject(pack,"path",osquery_monitor->packs[i]->path);
+            cJSON_AddItemToArray(packs, pack);
+        }
+        cJSON_AddItemToObject(wm_osq,"packs",packs);
+    }
+
+    cJSON_AddItemToObject(root,"osquery",wm_osq);
+
+    return root;
 }

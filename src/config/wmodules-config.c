@@ -1,6 +1,6 @@
 /*
  * Wazuh Module Configuration
- * Copyright (C) 2016 Wazuh Inc.
+ * Copyright (C) 2015-2019, Wazuh Inc.
  * April 25, 2016.
  *
  * This program is a free software; you can redistribute it
@@ -102,11 +102,30 @@ int Read_WModule(const OS_XML *xml, xml_node *node, void *d1, void *d2)
 #else
         mwarn("The '%s' module is not available on Windows systems. Ignoring.", node->values[0]);
 #endif
+    } else if (!strcmp(node->values[0], "docker-listener")) {
+#ifndef WIN32
+        if (wm_docker_read(children, cur_wmodule) < 0) {
+            OS_ClearNode(children);
+            return OS_INVALID;
+        }
+#else
+        mwarn("The '%s' module is not available on Windows systems. Ignoring it.", node->values[0]);
+#endif
     }
 #ifndef WIN32
 #ifndef CLIENT
     else if (!strcmp(node->values[0], WM_VULNDETECTOR_CONTEXT.name)) {
-        if (wm_vulnerability_detector_read(xml, children, cur_wmodule) < 0) {
+        if (wm_vuldet_read(xml, children, cur_wmodule) < 0) {
+            OS_ClearNode(children);
+            return OS_INVALID;
+        }
+    } else if (!strcmp(node->values[0], WM_AZURE_CONTEXT.name)) {
+        if (wm_azure_read(xml, children, cur_wmodule) < 0) {
+            OS_ClearNode(children);
+            return OS_INVALID;
+        }
+    } else if (!strcmp(node->values[0], WM_KEY_REQUEST_CONTEXT.name)) {
+        if (wm_key_request_read(children, cur_wmodule) < 0) {
             OS_ClearNode(children);
             return OS_INVALID;
         }
@@ -115,7 +134,8 @@ int Read_WModule(const OS_XML *xml, xml_node *node, void *d1, void *d2)
 #endif
 
     else {
-        if(!strcmp(node->values[0], "vulnerability-detector")){
+        if(!strcmp(node->values[0], VU_WM_NAME) || !strcmp(node->values[0], AZ_WM_NAME) ||
+            !strcmp(node->values[0], KEY_WM_NAME)) {
             mwarn("The '%s' module only works for the manager", node->values[0]);
         } else {
             merror("Unknown module '%s'", node->values[0]);

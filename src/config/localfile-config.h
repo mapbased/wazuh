@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -19,6 +20,10 @@
 /* For ino_t */
 #include <sys/types.h>
 #include "labels_op.h"
+
+extern int maximum_files;
+extern int total_files;
+extern int current_files;
 
 typedef struct _logsocket {
     char *name;
@@ -70,10 +75,12 @@ typedef struct _logreader {
     int duplicated;
     wlabel_t *labels;
     pthread_mutex_t mutex;
+    int exists;
 
     void *(*read)(struct _logreader *lf, int *rc, int drop_it);
 
     FILE *fp;
+    fpos_t position; // Pointer offset when closed
 } logreader;
 
 typedef struct _logreader_glob {

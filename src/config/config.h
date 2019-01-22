@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -36,6 +37,15 @@
 #define UDP_PROTO   6
 #define TCP_PROTO   17
 
+#define MAX_NEEDED_TAGS 4
+
+typedef enum needed_tags {
+    JSONOUT_OUTPUT = 0,
+    ALERTS_LOG,
+    LOGALL,
+    LOGALL_JSON
+} NeededTags;
+
 #include "os_xml/os_xml.h"
 
 /* Main function to read the config */
@@ -44,7 +54,7 @@ int ReadConfig(int modules, const char *cfgfile, void *d1, void *d2);
 int Read_Global(XML_NODE node, void *d1, void *d2);
 int Read_GlobalSK(XML_NODE node, void *configp, void *mailp);
 int Read_Rules(XML_NODE node, void *d1, void *d2);
-int Read_Syscheck(XML_NODE node, void *d1, void *d2);
+int Read_Syscheck(const OS_XML *xml, XML_NODE node, void *d1, void *d2);
 int Read_Rootcheck(XML_NODE node, void *d1, void *d2);
 int Read_Alerts(XML_NODE node, void *d1, void *d2);
 int Read_EmailAlerts(XML_NODE node, void *d1, void *d2);

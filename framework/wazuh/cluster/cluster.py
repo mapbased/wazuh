@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+# Copyright (C) 2015-2019, Wazuh Inc.
 # Created by Wazuh, Inc. <info@wazuh.com>.
 # This program is a free software; you can redistribute it and/or modify it under the terms of GPLv2
 
@@ -12,7 +13,7 @@ from wazuh.InputValidator import InputValidator
 from wazuh import common
 from datetime import datetime, timedelta
 from time import time
-from os import path, listdir, rename, utime, umask, stat, chmod, chown, remove, unlink
+from os import path, listdir, rename, utime, umask, stat, chmod, chown, remove, unlink, environ
 from subprocess import check_output, check_call, CalledProcessError
 from shutil import rmtree, copyfileobj
 from operator import eq, setitem, add
@@ -30,6 +31,7 @@ from random import random
 import glob
 import gzip
 from functools import reduce
+from socket import gethostname
 
 # import the C accelerated API of ElementTree
 try:
@@ -53,32 +55,39 @@ except:
 logger = logging.getLogger(__name__)
 
 
+def get_localhost_ips():
+    return set(str(check_output(['hostname', '--all-ip-addresses']).decode()).split(" ")[:-1])
+
+
 def check_cluster_config(config):
     iv = InputValidator()
     reservated_ips = {'localhost', 'NODE_IP', '0.0.0.0', '127.0.1.1'}
 
-    if not 'key' in config:
+    if len(config['key']) == 0:
         raise WazuhException(3004, 'Unspecified key')
     elif not iv.check_name(config['key']) or not iv.check_length(config['key'], 32, eq):
         raise WazuhException(3004, 'Key must be 32 characters long and only have alphanumeric characters')
 
-    if 'node_type' not in config:
-        raise WazuhException(3004, "Node type not present in cluster configuration")
     elif config['node_type'] != 'master' and config['node_type'] != 'worker':
-        raise WazuhException(3004, 'Invalid node type {0}. Correct values are master and worker'.format(config['node_type']))
+        raise WazuhException(3004, 'Invalid node type {0}. Correct values are master and worker'.format(
+            config['node_type']))
 
-    if 'nodes' not in config or len(config['nodes']) == 0:
-        raise WazuhException(3004, 'No nodes defined in cluster configuration.')
+    if config['disabled'] != 'yes' and config['disabled'] != 'no':
+        raise WazuhException(3004, 'Invalid value for disabled option {}. Allowed values are yes and no'.
+                             format(config['disabled']))
 
     if len(config['nodes']) > 1:
         logger.warning(
-            "Found more than one node in configuration. Only master node should be specified. Using {} as master.".format(
-                config['nodes'][0]))
+            "Found more than one node in configuration. Only master node should be specified. Using {} as master.".
+            format(config['nodes'][0]))
 
     invalid_elements = list(reservated_ips & set(config['nodes']))
 
     if len(invalid_elements) != 0:
         raise WazuhException(3004, "Invalid elements in node fields: {0}.".format(', '.join(invalid_elements)))
+
+    if not isinstance(config['port'], int):
+        raise WazuhException(3004, "Cluster port must be an integer.")
 
 
 def get_cluster_items():
@@ -104,35 +113,66 @@ def get_cluster_items_worker_intervals():
 
 
 def read_config():
+    cluster_default_configuration = {
+        'disabled': 'no',
+        'node_type': 'master',
+        'name': 'wazuh',
+        'node_name': 'node01',
+        'key': '',
+        'port': 1516,
+        'bind_addr': '0.0.0.0',
+        'nodes': ['NODE_IP'],
+        'hidden': 'no'
+    }
+
     try:
         config_cluster = get_ossec_conf('cluster')
-
     except WazuhException as e:
-        if e.code == 1102:
-            raise WazuhException(3006, "Cluster configuration not present in ossec.conf")
+        if e.code == 1106:
+            # if no cluster configuration is present in ossec.conf, return default configuration but disabling it.
+            cluster_default_configuration['disabled'] = 'yes'
+            return cluster_default_configuration
         else:
             raise WazuhException(3006, e.message)
     except Exception as e:
         raise WazuhException(3006, str(e))
 
-    if 'port' in config_cluster:
-        config_cluster['port'] = int(config_cluster['port'])
+    # if any value is missing from user's cluster configuration, add the default one:
+    for value_name in set(cluster_default_configuration.keys()) - set(config_cluster.keys()):
+        config_cluster[value_name] = cluster_default_configuration[value_name]
 
-    if 'node_type' in config_cluster and config_cluster['node_type'] == 'client':
-        logger.warning("Deprecated node type 'client'. Using 'worker' instead.")
+    config_cluster['port'] = int(config_cluster['port'])
+
+    # if config_cluster['node_name'].upper() == '$HOSTNAME':
+    #     # The HOSTNAME environment variable is not always available in os.environ so use socket.gethostname() instead
+    #     config_cluster['node_name'] = gethostname()
+
+    # if config_cluster['node_name'].upper() == '$NODE_NAME':
+    #     if 'NODE_NAME' in environ:
+    #         config_cluster['node_name'] = environ['NODE_NAME']
+    #     else:
+    #         raise WazuhException(3006, 'Unable to get the $NODE_NAME environment variable')
+
+    # if config_cluster['node_type'].upper() == '$NODE_TYPE':
+    #     if 'NODE_TYPE' in environ:
+    #         config_cluster['node_type'] = environ['NODE_TYPE']
+    #     else:
+    #         raise WazuhException(3006, 'Unable to get the $NODE_TYPE environment variable')
+
+    if config_cluster['node_type'] == 'client':
+        logger.info("Deprecated node type 'client'. Using 'worker' instead.")
         config_cluster['node_type'] = 'worker'
 
     return config_cluster
 
 
-def get_node(name=None):
+def get_node():
     data = {}
-    if not name:
-        config_cluster = read_config()
+    config_cluster = read_config()
 
-        data["node"]    = config_cluster["node_name"]
-        data["cluster"] = config_cluster["name"]
-        data["type"]    = config_cluster["node_type"]
+    data["node"]    = config_cluster["node_name"]
+    data["cluster"] = config_cluster["name"]
+    data["type"]    = config_cluster["node_type"]
 
     return data
 
@@ -141,24 +181,7 @@ def check_cluster_status():
     """
     Function to check if cluster is enabled
     """
-    with open("/etc/ossec-init.conf") as f:
-        # the osec directory is the first line of ossec-init.conf
-        directory = f.readline().split("=")[1][:-1].replace('"', "")
-
-    try:
-        # wrap the data
-        with open("{0}/etc/ossec.conf".format(directory)) as f:
-            txt_data = f.read()
-
-        txt_data = re.sub("(<!--.*?-->)", "", txt_data, flags=re.MULTILINE | re.DOTALL)
-        txt_data = txt_data.replace(" -- ", " -INVALID_CHAR ")
-        txt_data = '<root_tag>' + txt_data + '</root_tag>'
-
-        conf = ET.fromstring(txt_data)
-
-        return conf.find('ossec_config').find('cluster').find('disabled').text == 'no'
-    except:
-        return False
+    return read_config()['disabled'] != 'yes'
 
 
 def get_status_json():
@@ -459,7 +482,7 @@ def get_agents_status(filter_status="all", filter_nodes="all",  offset=0, limit=
                                        offset=offset)
     return agents
 
-  
+
 def _check_removed_agents(new_client_keys):
     """
     Function to delete agents that have been deleted in a synchronized
@@ -490,10 +513,6 @@ def _check_removed_agents(new_client_keys):
 #
 # Others
 #
-
-get_localhost_ips = lambda: check_output(['hostname', '--all-ip-addresses']).split(" ")[:-1]
-
-
 def run_logtest(synchronized=False):
     log_msg_start = "Synchronized r" if synchronized else "R"
     try:

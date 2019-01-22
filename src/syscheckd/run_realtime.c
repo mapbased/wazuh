@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -19,6 +20,8 @@
 #include "syscheck.h"
 
 volatile int audit_thread_active;
+volatile int whodata_alerts;
+volatile int audit_db_consistency_flag;
 
 #ifdef INOTIFY_ENABLED
 #include <sys/inotify.h>
@@ -51,10 +54,13 @@ int realtime_checksumfile(const char *file_name, whodata_evt *evt)
         c_sum[0] = '\0';
         c_sum[OS_MAXSTR] = '\0';
 
-        /* If it returns < 0, we have already alerted */
+
+        // If it returns < 0, we've already alerted the deleted file
         if (c_read_file(file_name, buf, c_sum, evt) < 0) {
+
             return (0);
         }
+
 
         c_sum_size = strlen(buf + SK_DB_NATTR);
         if (strncmp(c_sum, buf + SK_DB_NATTR, c_sum_size)) {
@@ -76,7 +82,7 @@ int realtime_checksumfile(const char *file_name, whodata_evt *evt)
             alert_msg[OS_MAXSTR] = '\0';
             char *fullalert = NULL;
 
-            if (buf[9] == '+') {
+            if (buf[SK_DB_REPORT_CHANG] == '+') {
                 fullalert = seechanges_addfile(file_name);
                 if (fullalert) {
                     snprintf(alert_msg, OS_MAXSTR, "%s!%s:%s %s\n%s", c_sum, wd_sum, syscheck.tag[pos] ? syscheck.tag[pos] : "", file_name, fullalert);
@@ -97,7 +103,7 @@ int realtime_checksumfile(const char *file_name, whodata_evt *evt)
 
             return (1);
         } else {
-            mdebug2("Discarding '%s': checksum already reported.", file_name);
+            mdebug2("Inotify event with same checksum for file: '%s'. Ignoring it.", file_name);
         }
 
         return (0);
@@ -116,7 +122,24 @@ int realtime_checksumfile(const char *file_name, whodata_evt *evt)
         if (pos >= 0) {
             mdebug1("Scanning new file '%s' with options for directory '%s'.", file_name, syscheck.dir[pos]);
             int diff = fim_find_child_depth(syscheck.dir[pos], file_name);
-            read_dir(file_name, pos, evt, syscheck.recursion_level[pos] - diff+1);
+            int depth = syscheck.recursion_level[pos] - diff+1;
+
+            if(check_path_type(file_name) == 2){
+                depth = depth - 1;
+            }
+#ifndef WIN32
+            struct stat statbuf;
+            if (lstat(file_name, &statbuf) < 0) {
+                mdebug2("Stat() function failed on: %s. File may have been deleted", file_name);
+                return -1;
+            }
+            if S_ISLNK(statbuf.st_mode) {
+                read_dir(file_name, pos, evt, depth, 1);
+            } else
+#endif
+            {
+                read_dir(file_name, pos, evt, depth, 0);
+            }
         }
 
     }
@@ -138,10 +161,6 @@ int find_dir_pos(const char *filename, int full_compare, int check_find, int dee
     } else {
         snprintf(buf, strlen(filename) + 1, "%s", filename);
     }
-
-#ifdef WIN32
-    str_lowercase(buf);
-#endif
 
     while (c = strrchr(buf, PATH_SEP), c && c != buf) {
         *c = '\0';
@@ -191,6 +210,8 @@ int realtime_start()
         merror_exit(MEM_ERROR, errno, strerror(errno));
     }
     syscheck.realtime->dirtb = OSHash_Create();
+    if (syscheck.realtime->dirtb == NULL) merror_exit(MEM_ERROR, errno, strerror(errno));
+    
     syscheck.realtime->fd = -1;
 
 #ifdef INOTIFY_ENABLED
@@ -257,7 +278,7 @@ int realtime_adddir(const char *dir, __attribute__((unused)) int whodata)
                         merror_exit("Out of memory. Exiting.");
                     }
 
-                    OSHash_Add_ex(syscheck.realtime->dirtb, wdchar, ndir);
+                    if (!OSHash_Add_ex(syscheck.realtime->dirtb, wdchar, ndir)) merror_exit("Out of memory. Exiting.");
                     mdebug1("Directory added for real time monitoring: '%s'.", ndir);
                 }
             }
@@ -383,6 +404,7 @@ void CALLBACK RTCallBack(DWORD dwerror, DWORD dwBytes, LPOVERLAPPED overlap)
             snprintf(final_path, MAX_LINE, "%s\\%s", rtlocald->dir, finalfile);
 
             /* Check the change */
+            str_lowercase(final_path);
             realtime_checksumfile(final_path, NULL);
         } while (pinfo->NextEntryOffset != 0);
     }
@@ -391,11 +413,24 @@ void CALLBACK RTCallBack(DWORD dwerror, DWORD dwBytes, LPOVERLAPPED overlap)
     return;
 }
 
+void free_win32rtfim_data(win32rtfim *data) {
+    if (!data) return;
+    if (data->h != NULL && data->h != INVALID_HANDLE_VALUE) CloseHandle(data->h);
+    if (data->overlap.Pointer) free(data->overlap.Pointer);
+    if (data->dir) free(data->dir);
+    free(data);
+}
+
 int realtime_start()
 {
     minfo("Initializing real time file monitoring engine.");
     os_calloc(1, sizeof(rtfim), syscheck.realtime);
-    syscheck.realtime->dirtb = (void *)OSHash_Create();
+    
+    syscheck.realtime->dirtb = OSHash_Create();
+    if (syscheck.realtime->dirtb == NULL) merror_exit(MEM_ERROR, errno, strerror(errno));
+    
+    OSHash_SetFreeDataPointer(syscheck.realtime->dirtb, (void (*)(void *))free_win32rtfim_data);
+    
     syscheck.realtime->fd = -1;
     syscheck.realtime->evt = CreateEvent(NULL, TRUE, FALSE, NULL);
 
@@ -410,7 +445,8 @@ int realtime_win32read(win32rtfim *rtlocald)
                                rtlocald->buffer,
                                sizeof(rtlocald->buffer) / sizeof(TCHAR),
                                TRUE,
-                               FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE,
+                               FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_SIZE |
+                               FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SECURITY,
                                0,
                                &rtlocald->overlap,
                                RTCallBack);
@@ -433,7 +469,7 @@ int realtime_adddir(const char *dir, int whodata)
         int type;
 
         if (!syscheck.wdata.fd && whodata_audit_start()) {
-            return 0;
+            merror_exit("At realtime_adddir(): OSHash_Create() failed");
         }
 
         // This parameter is used to indicate if the file is going to be monitored in Whodata mode,
@@ -507,7 +543,7 @@ int realtime_adddir(const char *dir, int whodata)
         /* Add final elements to the hash */
         os_strdup(dir, rtlocald->dir);
         os_strdup(dir, rtlocald->overlap.Pointer);
-        OSHash_Add_ex(syscheck.realtime->dirtb, wdchar, rtlocald);
+        if (!OSHash_Add_ex(syscheck.realtime->dirtb, wdchar, rtlocald)) merror_exit("Out of memory. Exiting.");
 
         /* Add directory to be monitored */
         realtime_win32read(rtlocald);

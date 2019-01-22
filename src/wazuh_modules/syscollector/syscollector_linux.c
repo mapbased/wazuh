@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for System inventory for Linux
- * Copyright (C) 2017 Wazuh Inc.
+ * Copyright (C) 2015-2019, Wazuh Inc.
  * Aug, 2017.
  *
  * This program is a free software; you can redistribute it
@@ -333,26 +333,51 @@ void sys_ports_linux(int queue_fd, const char* WM_SYS_LOCATION, int check_all){
 void sys_packages_linux(int queue_fd, const char* LOCATION) {
 
     DIR *dir;
+    int random_id = os_random();
+    char * end_dpkg = NULL;
+    char * end_rpm = NULL;
+
+    // Define time to sleep between messages sent
+    int usec = 1000000 / wm_max_eps;
+
+    /* Set positive random ID for each event */
+
+    if (random_id < 0)
+        random_id = -random_id;
 
     mtdebug1(WM_SYS_LOGTAG, "Starting installed packages inventory.");
 
     if ((dir = opendir("/var/lib/dpkg/"))){
         closedir(dir);
-        if (sys_deb_packages(queue_fd, LOCATION) < 0) {
+        if (end_dpkg = sys_deb_packages(queue_fd, LOCATION, random_id), !end_dpkg) {
             mterror(WM_SYS_LOGTAG, "Unable to get debian packages due to: %s", strerror(errno));
         }
-    } else if ((dir = opendir("/var/lib/rpm/"))){
+    }
+    if ((dir = opendir("/var/lib/rpm/"))){
         closedir(dir);
-        if (sys_rpm_packages(queue_fd, LOCATION) < 0) {
+        if (end_rpm = sys_rpm_packages(queue_fd, LOCATION, random_id), !end_rpm) {
             mterror(WM_SYS_LOGTAG, "Unable to get rpm packages due to: %s", strerror(errno));
         }
     }
+
+    if (end_rpm) {
+        mtdebug2(WM_SYS_LOGTAG, "sys_packages_linux() sending '%s'", end_rpm);
+        wm_sendmsg(usec, queue_fd, end_rpm, LOCATION, SYSCOLLECTOR_MQ);
+
+        free(end_rpm);
+        if (end_dpkg) {
+            free(end_dpkg);
+        }
+    } else if (end_dpkg) {
+        mtdebug2(WM_SYS_LOGTAG, "sys_packages_linux() sending '%s'", end_dpkg);
+        wm_sendmsg(usec, queue_fd, end_dpkg, LOCATION, SYSCOLLECTOR_MQ);
+        free(end_dpkg);
+    }
 }
 
-int sys_rpm_packages(int queue_fd, const char* LOCATION){
+char * sys_rpm_packages(int queue_fd, const char* LOCATION, int random_id){
 
     char *format = "rpm";
-    int random_id = os_random();
     char *timestamp;
     time_t now;
     struct tm localtm;
@@ -389,15 +414,10 @@ int sys_rpm_packages(int queue_fd, const char* LOCATION){
             localtm.tm_year + 1900, localtm.tm_mon + 1,
             localtm.tm_mday, localtm.tm_hour, localtm.tm_min, localtm.tm_sec);
 
-    /* Set positive random ID for each event */
-
-    if (random_id < 0)
-        random_id = -random_id;
-
     if ((ret = db_create(&dbp, NULL, 0)) != 0) {
         mterror(WM_SYS_LOGTAG, "sys_rpm_packages(): failed to initialize the DB handler: %s", db_strerror(ret));
         free(timestamp);
-        return -1;
+        return NULL;
     }
 
     // Set Little-endian order by default
@@ -408,13 +428,13 @@ int sys_rpm_packages(int queue_fd, const char* LOCATION){
     if ((ret = dbp->open(dbp, NULL, RPM_DATABASE, NULL, DB_HASH, DB_RDONLY, 0)) != 0) {
         mterror(WM_SYS_LOGTAG, "sys_rpm_packages(): Failed to open database '%s': %s", RPM_DATABASE, db_strerror(ret));
         free(timestamp);
-        return -1;
+        return NULL;
     }
 
     if ((ret = dbp->cursor(dbp, NULL, &cursor, 0)) != 0) {
         mterror(WM_SYS_LOGTAG, "sys_rpm_packages(): Error creating cursor: %s", db_strerror(ret));
         free(timestamp);
-        return -1;
+        return NULL;
     }
 
     memset(&key, 0, sizeof(DBT));
@@ -575,17 +595,14 @@ int sys_rpm_packages(int queue_fd, const char* LOCATION){
 
     char *end_msg;
     end_msg = cJSON_PrintUnformatted(object);
-    mtdebug2(WM_SYS_LOGTAG, "sys_rpm_packages() sending '%s'", end_msg);
-    wm_sendmsg(usec, queue_fd, end_msg, LOCATION, SYSCOLLECTOR_MQ);
     cJSON_Delete(object);
-    free(end_msg);
     free(timestamp);
 
-    return 0;
+    return end_msg;
 
 }
 
-int sys_deb_packages(int queue_fd, const char* LOCATION){
+char * sys_deb_packages(int queue_fd, const char* LOCATION, int random_id){
 
     const char * format = "deb";
     char file[PATH_LENGTH] = "/var/lib/dpkg/status";
@@ -593,7 +610,6 @@ int sys_deb_packages(int queue_fd, const char* LOCATION){
     FILE *fp;
     size_t length;
     int i, installed = 1;
-    int random_id = os_random();
     char *timestamp;
     time_t now;
     struct tm localtm;
@@ -614,11 +630,6 @@ int sys_deb_packages(int queue_fd, const char* LOCATION){
             localtm.tm_year + 1900, localtm.tm_mon + 1,
             localtm.tm_mday, localtm.tm_hour, localtm.tm_min, localtm.tm_sec);
 
-    /* Set positive random ID for each event */
-
-    if (random_id < 0)
-        random_id = -random_id;
-
     memset(read_buff, 0, OS_MAXSTR);
 
     if ((fp = fopen(file, "r"))) {
@@ -631,6 +642,10 @@ int sys_deb_packages(int queue_fd, const char* LOCATION){
 
             if (!strncmp(read_buff, "Package: ", 9)) {
 
+                if(object){
+                    cJSON_Delete(object);
+                }
+                
                 object = cJSON_CreateObject();
                 package = cJSON_CreateObject();
                 cJSON_AddStringToObject(object, "type", "program");
@@ -765,10 +780,12 @@ int sys_deb_packages(int queue_fd, const char* LOCATION){
                     mtdebug2(WM_SYS_LOGTAG, "sys_deb_packages() sending '%s'", string);
                     wm_sendmsg(usec, queue_fd, string, LOCATION, SYSCOLLECTOR_MQ);
                     cJSON_Delete(object);
+                    object = NULL;
                     free(string);
 
                 } else {
                     cJSON_Delete(object);
+                    object = NULL;
                     continue;
                 }
 
@@ -781,8 +798,12 @@ int sys_deb_packages(int queue_fd, const char* LOCATION){
 
         mterror(WM_SYS_LOGTAG, "Unable to open the file '%s'", file);
         free(timestamp);
-        return -1;
+        return NULL;
 
+    }
+
+    if(object){
+        cJSON_Delete(object);
     }
 
     object = cJSON_CreateObject();
@@ -792,13 +813,10 @@ int sys_deb_packages(int queue_fd, const char* LOCATION){
 
     char *end_msg;
     end_msg = cJSON_PrintUnformatted(object);
-    mtdebug2(WM_SYS_LOGTAG, "sys_deb_packages() sending '%s'", end_msg);
-    wm_sendmsg(usec, queue_fd, end_msg, LOCATION, SYSCOLLECTOR_MQ);
     cJSON_Delete(object);
-    free(end_msg);
     free(timestamp);
 
-    return 0;
+    return end_msg;
 
 }
 
@@ -1077,16 +1095,7 @@ void sys_network_linux(int queue_fd, const char* LOCATION){
                         }
 
                         /* Get broadcast address (or destination address in a Point to Point connection) */
-                        if ((host[0] != '\0') && (netmask[0] != '\0')) {
-                            char * broadaddr;
-                            broadaddr = get_broadcast_addr(host, netmask);
-                            if (strncmp(broadaddr, "unknown", 7)) {
-                                cJSON_AddItemToArray(ipv4_broadcast, cJSON_CreateString(broadaddr));
-                            } else {
-                                mterror(WM_SYS_LOGTAG, "Failed getting broadcast addr for '%s'", host);
-                            }
-                            free(broadaddr);
-                        } else if (ifa->ifa_ifu.ifu_broadaddr != NULL){
+                        if (ifa->ifa_ifu.ifu_broadaddr != NULL){
                             char broadaddr[NI_MAXHOST];
                             result = getnameinfo(ifa->ifa_ifu.ifu_broadaddr,
                                 sizeof(struct sockaddr_in),
@@ -1098,6 +1107,15 @@ void sys_network_linux(int queue_fd, const char* LOCATION){
                             } else {
                                 mterror(WM_SYS_LOGTAG, "getnameinfo() failed: %s\n", gai_strerror(result));
                             }
+                        } else if ((host[0] != '\0') && (netmask[0] != '\0')) {
+                            char * broadaddr;
+                            broadaddr = get_broadcast_addr(host, netmask);
+                            if (strncmp(broadaddr, "unknown", 7)) {
+                                cJSON_AddItemToArray(ipv4_broadcast, cJSON_CreateString(broadaddr));
+                            } else {
+                                mterror(WM_SYS_LOGTAG, "Failed getting broadcast addr for '%s'", host);
+                            }
+                            free(broadaddr);
                         }
                     }
 
@@ -1195,7 +1213,21 @@ void sys_network_linux(int queue_fd, const char* LOCATION){
             } else {
                 cJSON_Delete(ipv4_broadcast);
             }
+
+            /* Get Default Gateway */
+            char *gateway;
+            gateway = get_default_gateway(ifaces_list[i]);
+            cJSON_AddStringToObject(ipv4, "gateway", gateway);
+            free(gateway);
+
+            /* Get DHCP status for IPv4 */
+            char *dhcp_v4;
+            dhcp_v4 = check_dhcp(ifaces_list[i], AF_INET);
+            cJSON_AddStringToObject(ipv4, "DHCP", dhcp_v4);
+            free(dhcp_v4);
+
             cJSON_AddItemToObject(interface, "IPv4", ipv4);
+
         } else {
             cJSON_Delete(ipv4_addr);
             cJSON_Delete(ipv4_netmask);
@@ -1215,6 +1247,13 @@ void sys_network_linux(int queue_fd, const char* LOCATION){
             } else {
                 cJSON_Delete(ipv6_broadcast);
             }
+
+            /* Get DHCP status for IPv6 */
+            char *dhcp_v6;
+            dhcp_v6 = check_dhcp(ifaces_list[i], AF_INET6);
+            cJSON_AddStringToObject(ipv6, "DHCP", dhcp_v6);
+            free(dhcp_v6);
+
             cJSON_AddItemToObject(interface, "IPv6", ipv6);
         } else {
             cJSON_Delete(ipv6_addr);
@@ -1222,23 +1261,6 @@ void sys_network_linux(int queue_fd, const char* LOCATION){
             cJSON_Delete(ipv6_broadcast);
             cJSON_Delete(ipv6);
         }
-
-        /* Get Default Gateway */
-        char *gateway;
-        gateway = get_default_gateway(ifaces_list[i]);
-        cJSON_AddStringToObject(ipv4, "gateway", gateway);
-        free(gateway);
-
-        /* Get DHCP status for IPv4 */
-        char *dhcp_status;
-        dhcp_status = check_dhcp(ifaces_list[i], AF_INET);
-        cJSON_AddStringToObject(ipv4, "DHCP", dhcp_status);
-        free(dhcp_status);
-        
-        /* Get DHCP status for IPv6 */
-        dhcp_status = check_dhcp(ifaces_list[i], AF_INET6);
-        cJSON_AddStringToObject(ipv6, "DHCP", dhcp_status);
-        free(dhcp_status);
 
         /* Send interface data in JSON format */
         string = cJSON_PrintUnformatted(object);
@@ -1297,16 +1319,6 @@ hw_info *get_system_linux(){
 
                 free(info->cpu_name);
                 info->cpu_name = strdup(cpuname);
-            } else if ((aux_string = strstr(string, "cpu cores")) != NULL){
-
-                char *cores;
-                cores = strtok(string, ":");
-                cores = strtok(NULL, "\n");
-                if (cores[0] == '\"' && (end = strchr(++cores, '\"'), end)) {
-                    *end = '\0';
-                }
-                info->cpu_cores = atoi(cores);
-
             } else if ((aux_string = strstr(string, "cpu MHz")) != NULL){
 
                 char *frec;
@@ -1321,6 +1333,8 @@ hw_info *get_system_linux(){
         free(aux_string);
         fclose(fp);
     }
+
+    info->cpu_cores = get_nproc();
 
     if (!(fp = fopen("/proc/meminfo", "r"))) {
         mterror(WM_SYS_LOGTAG, "Unable to read meminfo file.");
@@ -1397,7 +1411,7 @@ char* get_if_type(char *ifa_name){
     char file[PATH_LENGTH];
 
     FILE *fp;
-    char type_str[3];
+    char type_str[6];
     int type_int;
     char * type;
     os_calloc(TYPE_LENGTH + 1, sizeof(char), type);
@@ -1406,7 +1420,7 @@ char* get_if_type(char *ifa_name){
     snprintf(file, PATH_LENGTH - 1, "%s%s/%s", WM_SYS_IFDATA_DIR, ifa_name, "type");
 
     if((fp = fopen(file, "r"))){
-        if (fgets(type_str, 3, fp) != NULL){
+        if (fgets(type_str, 6, fp) != NULL){
 
             type_int = atoi(type_str);
 

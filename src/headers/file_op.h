@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -89,12 +90,16 @@ int mkstemp_ex(char *tmp_path) __attribute__((nonnull));
 
 int TempFile(File *file, const char *source, int copy);
 int OS_MoveFile(const char *src, const char *dst);
+int w_copy_file(const char *src, const char *dst,char mode,char * message,int silent);
 
 /* Checks for Windows Vista */
 #ifdef WIN32
 int checkVista();
 int isVista;
 int get_creation_date(char *dir, SYSTEMTIME *utc);
+
+// Move to the directory where this executable lives in
+void w_ch_exec_dir();
 #endif
 
 /* Delete directory recursively */
@@ -120,5 +125,12 @@ char ** wreaddir(const char * name);
 
 // Open file normally in Linux, allow read/write/delete in Windows
 FILE * wfopen(const char * pathname, const char * mode);
+
+/* Delete a line from a file */
+int w_remove_line_from_file(char *file, int line);
+
+// To compress an decompress a file in gzip
+int w_compress_gzfile(const char *filesrc, const char *filedst);
+int w_uncompress_gzfile(const char *gzfilesrc, const char *gzfiledst);
 
 #endif /* __FILE_H */

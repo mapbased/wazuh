@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -9,6 +10,7 @@
 
 #include "shared.h"
 #include "string.h"
+#include "../os_regex/os_regex.h"
 
 #ifdef WIN32
 #ifdef EVENTCHANNEL_SUPPORT
@@ -344,4 +346,171 @@ void free_strarray(char ** array) {
 
         free(array);
     }
+}
+
+/* Returns 0 if str is found */
+int wstr_find_in_folder(char *path,const char *str,int strip_new_line){
+    DIR *dp;
+    FILE *fp = NULL;
+    char ** files;
+    int i;
+    int status = -1;
+
+    dp = opendir(path);
+    if (!dp) {
+        mdebug1("At wstr_find_in_folder(): Opening directory: '%s': %s", path, strerror(errno));
+        return status;
+    }
+
+    // Try to open directory, avoid TOCTOU hazard
+    if (files = wreaddir(path), !files) {
+        if (errno != ENOTDIR) {
+            mdebug1("Could not open directory '%s'", path);
+        }
+        closedir(dp);
+        return status;
+    }
+
+    /* Read directory */
+    for (i = 0; files[i]; ++i) {
+        char buffer[OS_SIZE_65536 + 1] = {0};
+        char file[PATH_MAX + 1] = {0};
+
+        snprintf(file, PATH_MAX + 1, "%s/%s", path, files[i]);
+        if (files[i][0] == '.') {
+            continue;
+        }
+
+        fp = fopen(file,"r");
+
+        if(!fp){
+            closedir(dp);
+            dp = NULL;
+            continue;
+        }
+
+        if( fgets (buffer, OS_SIZE_65536, fp)!=NULL ) {
+
+            if(strip_new_line){
+
+                char *endl = strchr(buffer, '\n');
+
+                if (endl) {
+                    *endl = '\0';
+                }
+            }
+
+            /* Found */
+            if(strncmp(str,buffer,OS_SIZE_65536) == 0){
+                status = 0;
+                goto end;
+            }
+        }
+        fclose(fp);
+        fp = NULL;
+    }
+
+end:
+    free_strarray(files);
+    if(fp){
+        fclose(fp);
+    }
+
+    if(dp){
+        closedir(dp);
+    }
+    return status;
+}
+
+/* Returns 0 if str is found */
+int wstr_find_line_in_file(char *file,const char *str,int strip_new_line){
+    FILE *fp = NULL;
+    int i = -1;
+    char buffer[OS_SIZE_65536 + 1] = {0};
+
+    fp = fopen(file,"r");
+
+    if(!fp){
+        return -1;
+    }
+
+    while(fgets (buffer, OS_SIZE_65536, fp) != NULL) {
+
+        char *endl = strchr(buffer, '\n');
+
+        if (endl) {
+            i++;
+        }
+
+        /* Found */
+        if(strip_new_line && endl){
+            *endl = '\0';
+        }
+
+        if(strncmp(str,buffer,OS_SIZE_65536) == 0){
+            fclose(fp);
+            return i;
+            break;
+        }
+    }
+    fclose(fp);
+
+    return -1;
+}
+
+char * wstr_delete_repeated_groups(const char * string){
+    char **aux;
+    char *result = NULL;
+    int i, k;
+
+    aux = OS_StrBreak(MULTIGROUP_SEPARATOR, string, MAX_GROUPS_PER_MULTIGROUP);
+
+    for (i=0; aux[i] != NULL; i++) {
+        for (k=0; k < i; k++){
+            if (!strcmp(aux[k], aux[i])) {
+                break;
+            }
+        }
+
+        // If no duplicate found, append
+        if (k == i) {
+            wm_strcat(&result, aux[i], MULTIGROUP_SEPARATOR);
+        }
+    }
+
+    free_strarray(aux);
+    return result;
+}
+
+
+// Concatenate strings with optional separator
+
+int wm_strcat(char **str1, const char *str2, char sep) {
+    size_t len1;
+    size_t len2;
+
+    if (str2) {
+        len2 = strlen(str2);
+
+        if (*str1) {
+            len1 = strlen(*str1);
+            os_realloc(*str1, len1 + len2 + (sep ? 2 : 1), *str1);
+
+            if (sep)
+                memcpy(*str1 + (len1++), &sep, 1);
+        } else {
+            len1 = 0;
+            os_malloc(len2 + 1, *str1);
+        }
+
+        memcpy(*str1 + len1, str2, len2 + 1);
+        return 0;
+    } else
+        return -1;
+}
+
+int wstr_end(char *str, const char *str_end) {
+    size_t str_len = strlen(str);
+    size_t str_end_len = strlen(str_end);
+    return str_end_len <= str_len && !strcmp(str + str_len - str_end_len, str_end);
 }

@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All rights reserved.
  *
  * This program is a free software; you can redistribute it
@@ -81,9 +82,6 @@ typedef struct _RuleInfo {
     int ckignore;
     int group_prev_matched_sz;
 
-    int __frequency;
-    char **last_events;
-
     /* Not an option in the rule */
     u_int16_t alert_opts;
 
@@ -113,7 +111,7 @@ typedef struct _RuleInfo {
     OSList *group_search;
 
     /* Function pointer to the event_search */
-    void *(*event_search)(void *lf, void *rule);
+    void *(*event_search)(void *lf, void *rule, void *rule_match);
 
     char *group;
     OSMatch *match;
@@ -150,6 +148,7 @@ typedef struct _RuleInfo {
     int if_matched_sid;
 
     void **ar;
+    pthread_mutex_t mutex;
 
 } RuleInfo;
 

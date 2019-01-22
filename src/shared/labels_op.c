@@ -1,6 +1,6 @@
 /*
  * Label data operations
- * Copyright (C) 2017 Wazuh Inc.
+ * Copyright (C) 2015-2019, Wazuh Inc.
  * February 27, 2017.
  *
  * This program is a free software; you can redistribute it
@@ -173,6 +173,7 @@ wlabel_t * labels_dup(const wlabel_t * labels) {
         os_realloc(copy, sizeof(wlabel_t) * (i + 2), copy);
         os_strdup(labels[i].key, copy[i].key);
         os_strdup(labels[i].value, copy[i].value);
+        copy[i].flags = labels[i].flags;
     }
 
     copy[i].key = copy[i].value = NULL;

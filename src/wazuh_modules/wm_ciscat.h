@@ -1,6 +1,6 @@
 /*
  * Wazuh Module for CIS-CAT scanner
- * Copyright (C) 2016 Wazuh Inc.
+ * Copyright (C) 2015-2019, Wazuh Inc.
  * December, 2017.
  *
  * This program is a free software; you can redistribute it
@@ -13,8 +13,6 @@
 #ifndef WM_CISCAT
 #define WM_CISCAT
 
-#define WM_DEF_TIMEOUT      1800            // Default runtime limit (30 minutes)
-#define WM_DEF_INTERVAL     86400           // Default cycle interval (1 day)
 #define MAX_RESULT          64              // Maximum result length
 
 #define WM_CISCAT_LOGTAG ARGV0 ":ciscat"

@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -9,12 +10,12 @@
 
 #include "shared.h"
 #include "log.h"
+#include "syscheck_op.h"
 #include "alerts.h"
 #include "getloglocation.h"
 #include "rules.h"
 #include "eventinfo.h"
 #include "config.h"
-
 
 /* Drop/allow patterns */
 static OSMatch FWDROPpm;
@@ -94,8 +95,11 @@ void OS_Store(const Eventinfo *lf)
             lf->location,
             lf->full_log);
 
-    fflush(_eflog);
     return;
+}
+
+void OS_Store_Flush(){
+    fflush(_eflog);
 }
 
 void OS_LogOutput(Eventinfo *lf)
@@ -187,25 +191,26 @@ void OS_LogOutput(Eventinfo *lf)
             printf(" - Size: %s\n", lf->size_after);
         }
 
-        if (lf->perm_after){
-            printf(" - Permissions: %6o\n", lf->perm_after);
-        }
         if (lf->mtime_after) {
             printf(" - Date: %s", ctime(&lf->mtime_after));
         }
+
         if (lf->inode_after) {
             printf(" - Inode: %ld\n", lf->inode_after);
         }
+
         if (lf->owner_after && lf->uname_after) {
             if (strcmp(lf->uname_after, "") != 0) {
                 printf(" - User: %s (%s)\n", lf->uname_after, lf->owner_after);
             }
         }
+
         if (lf->gowner_after && lf->gname_after) {
             if (strcmp(lf->gname_after, "") != 0) {
                 printf(" - Group: %s (%s)\n", lf->gname_after, lf->gowner_after);
             }
         }
+
         if (lf->md5_after) {
             if (strcmp(lf->md5_after, "xxx") != 0 && strcmp(lf->md5_after, "") != 0) {
                 printf(" - MD5: %s\n", lf->md5_after);
@@ -224,6 +229,26 @@ void OS_LogOutput(Eventinfo *lf)
             }
         }
 
+        if (lf->attrs_after != 0) {
+            char *attributes_list;
+            os_calloc(OS_SIZE_256 + 1, sizeof(char), attributes_list);
+            decode_win_attributes(attributes_list, lf->attrs_after);
+            printf(" - File attributes: %s\n", attributes_list);
+            free(attributes_list);
+        }
+
+        if (lf->perm_after){
+            printf(" - Permissions: %6o\n", lf->perm_after);
+        } else if (lf->win_perm_after && *lf->win_perm_after != '\0') {
+            char *permissions_list;
+            int size;
+            os_calloc(OS_SIZE_20480 + 1, sizeof(char), permissions_list);
+            if (size = decode_win_permissions(permissions_list, OS_SIZE_20480, lf->win_perm_after, 0, NULL), size > 1) {
+                os_realloc(permissions_list, size + 1, permissions_list);
+                printf(" - Permissions: \n%s", permissions_list);
+                free(permissions_list);
+            }
+        }
     }
 
     if (lf->filename && lf->sk_tag) {
@@ -241,15 +266,15 @@ void OS_LogOutput(Eventinfo *lf)
     // Dynamic fields, except for syscheck events
     if (lf->fields && !lf->filename) {
         for (i = 0; i < lf->nfields; i++) {
-            if (lf->fields[i].value) {
+            if (lf->fields[i].value && *lf->fields[i].value) {
                 printf("%s: %s\n", lf->fields[i].key, lf->fields[i].value);
             }
         }
     }
 
     /* Print the last events if present */
-    if (lf->generated_rule->last_events) {
-        char **lasts = lf->generated_rule->last_events;
+    if (lf->last_events) {
+        char **lasts = lf->last_events;
         while (*lasts) {
             printf("%s\n", *lasts);
             lasts++;
@@ -257,6 +282,7 @@ void OS_LogOutput(Eventinfo *lf)
     }
 
     printf("\n");
+
 
     fflush(stdout);
     return;
@@ -350,9 +376,6 @@ void OS_Log(Eventinfo *lf)
             fprintf(_aflog, " - Size: %s\n", lf->size_after);
         }
 
-        if (lf->perm_after){
-            fprintf(_aflog, " - Permissions: %6o\n", lf->perm_after);
-        }
         if (lf->mtime_after) {
             fprintf(_aflog, " - Date: %s", ctime(&lf->mtime_after));
         }
@@ -387,6 +410,26 @@ void OS_Log(Eventinfo *lf)
             }
         }
 
+        if (lf->attrs_after != 0) {
+            char *attributes_list;
+            os_calloc(OS_SIZE_256 + 1, sizeof(char), attributes_list);
+            decode_win_attributes(attributes_list, lf->attrs_after);
+            fprintf(_aflog, " - File attributes: %s\n", attributes_list);
+            free(attributes_list);
+        }
+
+        if (lf->perm_after) {
+            fprintf(_aflog, " - Permissions: %6o\n", lf->perm_after);
+        } else if (lf->win_perm_after && *lf->win_perm_after != '\0') {
+            char *permissions_list;
+            int size;
+            os_calloc(OS_SIZE_20480 + 1, sizeof(char), permissions_list);
+            if (size = decode_win_permissions(permissions_list, OS_SIZE_20480, lf->win_perm_after, 0, NULL), size > 1) {
+                os_realloc(permissions_list, size + 1, permissions_list);
+                fprintf(_aflog, " - Permissions: \n%s", permissions_list);
+                free(permissions_list);
+            }
+        }
     }
 
     if (lf->filename && lf->sk_tag) {
@@ -407,15 +450,15 @@ void OS_Log(Eventinfo *lf)
     // Dynamic fields, except for syscheck events
     if (lf->fields && !lf->filename) {
         for (i = 0; i < lf->nfields; i++) {
-            if (lf->fields[i].value) {
+            if (lf->fields[i].value && *lf->fields[i].value) {
                 fprintf(_aflog, "%s: %s\n", lf->fields[i].key, lf->fields[i].value);
             }
         }
     }
 
     /* Print the last events if present */
-    if (lf->generated_rule->last_events) {
-        char **lasts = lf->generated_rule->last_events;
+    if (lf->last_events) {
+        char **lasts = lf->last_events;
         while (*lasts) {
             fprintf(_aflog, "%s\n", *lasts);
             lasts++;
@@ -423,9 +466,12 @@ void OS_Log(Eventinfo *lf)
     }
 
     fprintf(_aflog, "\n");
-    fflush(_aflog);
 
     return;
+}
+
+void OS_Log_Flush(){
+    fflush(_aflog);
 }
 
 void OS_CustomLog(const Eventinfo *lf, const char *format)
@@ -491,11 +537,14 @@ void OS_CustomLog(const Eventinfo *lf, const char *format)
 
     fprintf(_aflog, "%s", log);
     fprintf(_aflog, "\n");
-    fflush(_aflog);
 
     free(log);
 
     return;
+}
+
+void OS_CustomLog_Flush(){
+    fflush(_aflog);
 }
 
 void OS_InitFwLog()
@@ -514,15 +563,6 @@ void OS_InitFwLog()
 
 int FW_Log(Eventinfo *lf)
 {
-    /* If we don't have the srcip or the
-     * action, there is no point in going
-     * forward over here
-     */
-    if (!lf->action || !lf->srcip || !lf->dstip || !lf->srcport ||
-            !lf->dstport || !lf->protocol) {
-        return (0);
-    }
-
     /* Set the actions */
     switch (*lf->action) {
         /* discard, drop, deny, */

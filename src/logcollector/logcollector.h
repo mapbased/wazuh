@@ -1,4 +1,5 @@
-/* Copyright (C) 2009 Trend Micro Inc.
+/* Copyright (C) 2015-2019, Wazuh Inc.
+ * Copyright (C) 2009 Trend Micro Inc.
  * All right reserved.
  *
  * This program is a free software; you can redistribute it
@@ -27,11 +28,22 @@
 /* Read logcollector config */
 int LogCollectorConfig(const char *cfgfile);
 
+/* Parse readed config into JSON format */
+cJSON *getLocalfileConfig(void);
+cJSON *getSocketConfig(void);
+cJSON *getLogcollectorInternalOptions(void);
+
 /* Start log collector daemon */
 void LogCollectorStart(void) __attribute__((noreturn));
 
 /* Handle files */
 int handle_file(int i, int j, int do_fseek, int do_log);
+
+/* Reload file: open after close, and restore position */
+int reload_file(logreader * lf);
+
+/* Close file and save position */
+void close_file(logreader * lf);
 
 /* Read syslog file */
 void *read_syslog(logreader *lf, int *rc, int drop_it);
@@ -80,6 +92,13 @@ void win_start_event_channel(char *evt_log, char future, char *query);
 void win_format_event_string(char *string);
 #endif
 
+#ifndef WIN32
+// Com request thread dispatcher
+void * lccom_main(void * arg);
+#endif
+size_t lccom_dispatch(char * command, char ** output);
+size_t lccom_getconfig(const char * section, char ** output);
+
 /*** Global variables ***/
 extern int loop_timeout;
 extern int logr_queue;
@@ -90,9 +109,9 @@ extern logsocket *logsk;
 extern int vcheck_files;
 extern int maximum_lines;
 extern logsocket default_agent;
-extern int maximum_files;
-extern int current_files;
-extern int total_files;
+extern int force_reload;
+extern int reload_interval;
+extern int reload_delay;
 
 typedef enum {
     CONTINUE_IT,
@@ -164,5 +183,12 @@ void w_create_input_threads();
 /* Set mutexes for each file */
 void w_set_file_mutexes();
 extern int sample_log_length;
+extern int lc_debug_level;
+extern int accept_remote;
+extern int N_INPUT_THREADS;
+extern int OUTPUT_QUEUE_SIZE;
+#ifndef WIN32
+extern rlim_t nofile;
+#endif
 
 #endif /* __LOGREADER_H */
